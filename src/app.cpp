@@ -15,12 +15,11 @@ std::optional<App> App::Init() {
   }
 
   if (volkInitialize() != VK_SUCCESS) {
-    RuntimeError::SetErrorString(
-        "Vulkan Initialization Failure: couldn't load vulkan library "
-        "functions. Does this computer support rendering with Vulkan? "
-        "Currently we do not support other graphics APIs other than Vulkan; "
-        "OpenGL support may be added in the future for better compability with "
-        "older hardware.");
+    RuntimeError::SetErrorString("Vulkan Initialization Failure: couldn't load vulkan library "
+                                 "functions. Does this computer support rendering with Vulkan? "
+                                 "Currently we do not support other graphics APIs other than Vulkan; "
+                                 "OpenGL support may be added in the future for better compability with "
+                                 "older hardware.");
 
     return std::nullopt;
   }

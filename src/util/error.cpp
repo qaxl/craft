@@ -28,7 +28,7 @@ void RuntimeError::SetErrorString(std::string_view description, ErrorFlags flags
     // This'll be slow, but it doesn't matter since error has occurred and the
     // program won't continue anyway.
     for (auto &fn : st) {
-      s_description += std::format("{}:{} @ {}", fn.source_file(), fn.source_line(), fn.description());
+      s_description += std::format("{}:{}@{}\n", fn.source_file(), fn.source_line(), fn.description());
     }
   }
 
