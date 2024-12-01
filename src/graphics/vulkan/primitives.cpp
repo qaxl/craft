@@ -192,13 +192,14 @@ Instance::~Instance() {
   vkDestroyInstance(m_instance, nullptr);
 }
 
-void Instance::SelectPhysicalDevice() {
+Device Instance::SelectPhysicalDevice() {
   uint32_t device_count = 0;
   VK_CHECK(vkEnumeratePhysicalDevices(m_instance, &device_count, nullptr));
 
   std::vector<VkPhysicalDevice> devices(device_count);
   VK_CHECK(vkEnumeratePhysicalDevices(m_instance, &device_count, devices.data()));
 
+  VkPhysicalDevice selected_device = VK_NULL_HANDLE;
   for (auto device : devices) {
     VkPhysicalDeviceProperties props;
     VkPhysicalDeviceFeatures feats;
@@ -206,6 +207,7 @@ void Instance::SelectPhysicalDevice() {
     vkGetPhysicalDeviceFeatures(device, &feats);
 
     std::cout << "Queried a physical device: " << props.deviceName << std::endl;
+    selected_device = device;
 
     uint32_t ext_count = 0;
     VK_CHECK(vkEnumerateDeviceExtensionProperties(device, nullptr, &ext_count, nullptr));
@@ -224,6 +226,14 @@ void Instance::SelectPhysicalDevice() {
       break;
     }
   }
+
+  return Device(selected_device);
+}
+
+Device::Device(VkPhysicalDevice device) {
+  VkDeviceCreateInfo create_info{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
+
+  vkCreateDevice(device, &create_info, nullptr, &m_device);
 }
 
 } // namespace craft::vk

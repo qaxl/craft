@@ -13,8 +13,7 @@ struct InstanceExtension {
   bool required = true;
 };
 
-class PhysicalDevice;
-class LogicalDevice;
+class Device;
 
 class Instance {
 public:
@@ -22,10 +21,18 @@ public:
            std::string_view app_name = "craft app");
   ~Instance();
 
-  void SelectPhysicalDevice();
+  Device SelectPhysicalDevice();
 
 private:
   VkInstance m_instance = VK_NULL_HANDLE;
   VkDebugUtilsMessengerEXT m_messenger = VK_NULL_HANDLE;
+};
+
+class Device {
+public:
+  Device(VkPhysicalDevice device);
+
+private:
+  VkDevice m_device;
 };
 } // namespace craft::vk
