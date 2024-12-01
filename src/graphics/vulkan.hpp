@@ -2,6 +2,7 @@
 
 #include <source_location>
 #include <string_view>
+#include <vector>
 
 #define VK_USE_PLATFORM_WIN32_KHR
 #include <volk.h>
@@ -38,7 +39,37 @@ static constexpr void CheckResult(VkResult result,
                                              VkResultToStr(result)),
                                  EF_DumpStacktrace);
   }
-} // namespace craft::vk
+}
+
+// This is probably not the best way to implement this, but it gets the job done.
+template <typename T, typename F, typename R, typename... Args>
+concept FallibleVkFunction = requires(F func, Args &&...args) {
+  { func(std::declval<Args>()..., std::declval<uint32_t *>(), std::declval<T *>()) } -> std::convertible_to<R>;
+};
+
+template <typename T, typename F, typename... Args>
+  requires FallibleVkFunction<T, F, VkResult, Args...>
+static constexpr inline std::vector<T> GetProperties(F function, Args &&...args) {
+  uint32_t ext_count = 0;
+  VK_CHECK(function(std::forward<Args>(args)..., &ext_count, nullptr));
+
+  std::vector<T> exts(ext_count);
+  VK_CHECK(function(std::forward<Args>(args)..., &ext_count, exts.data()));
+
+  return exts;
+}
+
+template <typename T, typename F, typename... Args>
+  requires FallibleVkFunction<T, F, void, Args...>
+static constexpr inline std::vector<T> GetProperties(F function, Args &&...args) {
+  uint32_t ext_count = 0;
+  function(std::forward<Args>(args)..., &ext_count, nullptr);
+
+  std::vector<T> exts(ext_count);
+  function(std::forward<Args>(args)..., &ext_count, exts.data());
+
+  return exts;
+}
 
 static std::string_view VkResultToStr(VkResult result) {
   switch (result) {

@@ -10,11 +10,7 @@
 
 namespace craft::vk {
 static std::vector<const char *> CheckInstanceExtensions(std::initializer_list<InstanceExtension> exts) {
-  uint32_t ext_count = 0;
-  VK_CHECK(vkEnumerateInstanceExtensionProperties(nullptr, &ext_count, nullptr));
-
-  std::vector<VkExtensionProperties> available_exts(ext_count);
-  VK_CHECK(vkEnumerateInstanceExtensionProperties(nullptr, &ext_count, available_exts.data()));
+  auto available_exts = GetProperties<VkExtensionProperties>(vkEnumerateInstanceExtensionProperties, nullptr);
 
   std::set<std::string_view> required_exts;
   for (const auto &ext : exts) {
@@ -62,11 +58,7 @@ static std::vector<const char *> CheckInstanceExtensions(std::initializer_list<I
 }
 
 static std::vector<const char *> CheckInstanceLayers(std::initializer_list<const char *> layers) {
-  uint32_t layer_count = 0;
-  VK_CHECK(vkEnumerateInstanceLayerProperties(&layer_count, nullptr));
-
-  std::vector<VkLayerProperties> available_layers(layer_count);
-  VK_CHECK(vkEnumerateInstanceLayerProperties(&layer_count, available_layers.data()));
+  auto available_layers = GetProperties<VkLayerProperties>(vkEnumerateInstanceLayerProperties);
 
   std::vector<const char *> enabled_layers;
   enabled_layers.reserve(layers.size());
@@ -153,6 +145,8 @@ Instance::Instance(std::initializer_list<InstanceExtension> extensions, std::ini
   app_info.pApplicationName = app_name.data();
   app_info.pEngineName = "craft engine";
   app_info.engineVersion = VK_MAKE_API_VERSION(0, 1, 0, 0);
+  // TODO: not to depend on the latest and the greatest, add support for older.
+  app_info.apiVersion = VK_API_VERSION_1_3;
 
   VkInstanceCreateInfo create_info{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
 
@@ -193,11 +187,7 @@ Instance::~Instance() {
 }
 
 Device Instance::SelectPhysicalDevice() {
-  uint32_t device_count = 0;
-  VK_CHECK(vkEnumeratePhysicalDevices(m_instance, &device_count, nullptr));
-
-  std::vector<VkPhysicalDevice> devices(device_count);
-  VK_CHECK(vkEnumeratePhysicalDevices(m_instance, &device_count, devices.data()));
+  auto devices = GetProperties<VkPhysicalDevice>(vkEnumeratePhysicalDevices, m_instance);
 
   VkPhysicalDevice selected_device = VK_NULL_HANDLE;
   for (auto device : devices) {
@@ -209,11 +199,8 @@ Device Instance::SelectPhysicalDevice() {
     std::cout << "Queried a physical device: " << props.deviceName << std::endl;
     selected_device = device;
 
-    uint32_t ext_count = 0;
-    VK_CHECK(vkEnumerateDeviceExtensionProperties(device, nullptr, &ext_count, nullptr));
-
-    std::vector<VkExtensionProperties> exts(ext_count);
-    VK_CHECK(vkEnumerateDeviceExtensionProperties(device, nullptr, &ext_count, exts.data()));
+    auto exts = GetProperties<VkExtensionProperties>(vkEnumerateDeviceExtensionProperties, device, nullptr);
+    auto queue_families = GetProperties<VkQueueFamilyProperties>(vkGetPhysicalDeviceQueueFamilyProperties, device);
 
     for (const auto &ext : exts) {
       std::cout << "Found a device-level extension: " << ext.extensionName << std::endl;
@@ -233,7 +220,7 @@ Device Instance::SelectPhysicalDevice() {
 Device::Device(VkPhysicalDevice device) {
   VkDeviceCreateInfo create_info{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
 
-  vkCreateDevice(device, &create_info, nullptr, &m_device);
+  VK_CHECK(vkCreateDevice(device, &create_info, nullptr, &m_device));
 }
 
 } // namespace craft::vk
