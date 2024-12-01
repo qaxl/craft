@@ -13,8 +13,7 @@ public:
 private:
   friend class RuntimeError;
 
-  ErrorString(std::mutex &mtx, std::string_view desc)
-      : m_lock(std::lock_guard<std::mutex>(mtx)), m_view(desc) {}
+  ErrorString(std::mutex &mtx, std::string_view desc) : m_lock(std::lock_guard<std::mutex>(mtx)), m_view(desc) {}
 
   std::lock_guard<std::mutex> m_lock;
   std::string_view m_view;
@@ -24,6 +23,8 @@ enum ErrorFlags : uint32_t {
   EF_None,
   EF_AppendSDLErrors = 1 << 0,
   EF_DumpStacktrace = 1 << 1,
+  // Doesn't set error flag
+  EF_Passthrough = 1 << 2,
 };
 
 class RuntimeError {
@@ -31,6 +32,7 @@ public:
   static bool HasAnError() { return s_has_an_error.load(std::memory_order_relaxed); }
 
   static void SetErrorString(std::string_view description, ErrorFlags flags = EF_None);
+  static void Throw(std::string_view description, ErrorFlags flags = EF_None);
 
   static ErrorString GetErrorString() { return ErrorString(s_mutex, s_description); }
 

@@ -1,16 +1,27 @@
 #include "primitives.hpp"
+#include "SDL3/SDL_vulkan.h"
 #include "graphics/vulkan.hpp"
 #include "util/error.hpp"
 #include "vulkan/vulkan_core.h"
 
 #include <algorithm>
 #include <iostream>
+#include <ranges>
 #include <set>
 #include <vector>
 
 namespace craft::vk {
-static std::vector<const char *> CheckInstanceExtensions(std::initializer_list<InstanceExtension> exts) {
+static std::vector<const char *> CheckInstanceExtensions(std::initializer_list<InstanceExtension> exts_) {
   auto available_exts = GetProperties<VkExtensionProperties>(vkEnumerateInstanceExtensionProperties, nullptr);
+
+  std::vector<InstanceExtension> exts = exts_;
+  uint32_t sdl_ext_count = 0;
+  const char *const *sdl_exts = SDL_Vulkan_GetInstanceExtensions(&sdl_ext_count);
+
+  for (uint32_t i = 0; i < sdl_ext_count; ++i) {
+    exts.emplace_back(InstanceExtension{sdl_exts[i], true});
+    std::cout << "SDL wants Vulkan instance-level extension enabled: " << sdl_exts[i] << std::endl;
+  }
 
   std::set<std::string_view> required_exts;
   for (const auto &ext : exts) {
@@ -51,7 +62,7 @@ static std::vector<const char *> CheckInstanceExtensions(std::initializer_list<I
       std::cout << "- " << ext << std::endl;
     }
 
-    RuntimeError::SetErrorString("Not all required Vulkan extensions were enabled.");
+    RuntimeError::Throw("Not all required Vulkan extensions were enabled.");
   }
 
   return enabled_exts;
@@ -84,7 +95,7 @@ static std::vector<const char *> CheckInstanceLayers(std::initializer_list<const
   }
 
   if (count != layers.size()) {
-    RuntimeError::SetErrorString("Not all required Vulkan layers were enabled.");
+    RuntimeError::Throw("Not all required Vulkan layers were enabled.");
   }
 
   return enabled_layers;
@@ -135,8 +146,9 @@ static VKAPI_CALL VkBool32 VkDebugMessageCallback(VkDebugUtilsMessageSeverityFla
   return VK_FALSE;
 }
 
-Instance::Instance(std::initializer_list<InstanceExtension> extensions, std::initializer_list<const char *> layers,
-                   std::string_view app_name) {
+Instance::Instance(std::shared_ptr<Window> window, std::initializer_list<InstanceExtension> extensions,
+                   std::initializer_list<const char *> layers, std::string_view app_name)
+    : m_window(window) {
   auto exts = CheckInstanceExtensions(extensions);
   auto layrs = CheckInstanceLayers(layers);
 
@@ -189,6 +201,11 @@ Instance::~Instance() {
 Device Instance::SelectPhysicalDevice() {
   auto devices = GetProperties<VkPhysicalDevice>(vkEnumeratePhysicalDevices, m_instance);
 
+  auto req_exts = Device::GetExtensions();
+  auto opt_exts = Device::GetOptionalExtensions();
+
+  std::vector<const char *> enabled_exts;
+
   VkPhysicalDevice selected_device = VK_NULL_HANDLE;
   for (auto device : devices) {
     VkPhysicalDeviceProperties props;
@@ -196,14 +213,67 @@ Device Instance::SelectPhysicalDevice() {
     vkGetPhysicalDeviceProperties(device, &props);
     vkGetPhysicalDeviceFeatures(device, &feats);
 
+    VkPhysicalDeviceVulkan13Features feats13{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
+    VkPhysicalDeviceVulkan12Features feats12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, &feats13};
+    VkPhysicalDeviceFeatures2 feats2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &feats12};
+    vkGetPhysicalDeviceFeatures2(device, &feats2);
+
+    // TODO: make a static function in device to check features too?
+    if (!feats13.dynamicRendering && !feats13.synchronization2) {
+      RuntimeError::Throw("This Vulkan renderer won't work without dynamic rendering!");
+    }
+
     std::cout << "Queried a physical device: " << props.deviceName << std::endl;
-    selected_device = device;
 
     auto exts = GetProperties<VkExtensionProperties>(vkEnumerateDeviceExtensionProperties, device, nullptr);
     auto queue_families = GetProperties<VkQueueFamilyProperties>(vkGetPhysicalDeviceQueueFamilyProperties, device);
 
     for (const auto &ext : exts) {
       std::cout << "Found a device-level extension: " << ext.extensionName << std::endl;
+
+      if (auto it =
+              std::find_if(req_exts.begin(), req_exts.end(),
+                           [&](std::string_view wanted) { return strcmp(ext.extensionName, wanted.data()) == 0; });
+          it != req_exts.end()) {
+        std::cout << "Enabling required device-level extension: " << ext.extensionName << std::endl;
+        enabled_exts.push_back(*it);
+      } else if (auto it = std::find_if(
+                     opt_exts.begin(), opt_exts.end(),
+                     [&](std::string_view wanted) { return strcmp(ext.extensionName, wanted.data()) == 0; });
+                 it != opt_exts.end()) {
+        std::cout << "Enabling optional device-level extension: " << ext.extensionName << std::endl;
+        enabled_exts.push_back(*it);
+      }
+    }
+
+    if (!std::includes(enabled_exts.begin(), enabled_exts.end(), req_exts.begin(), req_exts.end())) {
+      std::cout << "Can't use device " << props.deviceName << " because it doesn't support all necessary extensions."
+                << std::endl;
+      enabled_exts.clear();
+      continue;
+    }
+
+    selected_device = device;
+
+    for (const auto &[i, queue_family] : std::views::enumerate(queue_families)) {
+      std::string capabilities = "";
+
+      if (queue_family.queueFlags & VK_QUEUE_GRAPHICS_BIT)
+        capabilities += "GRAPHICS ";
+      if (queue_family.queueFlags & VK_QUEUE_COMPUTE_BIT)
+        capabilities += "COMPUTE ";
+      if (queue_family.queueFlags & VK_QUEUE_TRANSFER_BIT)
+        capabilities += "TRANSFER ";
+      if (queue_family.queueFlags & VK_QUEUE_SPARSE_BINDING_BIT)
+        capabilities += "SPARSE_BINDING ";
+
+      // TODO: where the fuck this belongs?
+      if (SDL_Vulkan_GetPresentationSupport(m_instance, device, i))
+        capabilities += "PRESENT ";
+
+      std::cout << "Found a queue family (ID=" << i << "): supports " << queue_family.queueCount
+                << " queues, supporting features: " << capabilities << std::endl;
+      ;
     }
 
     if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
@@ -214,13 +284,44 @@ Device Instance::SelectPhysicalDevice() {
     }
   }
 
-  return Device(selected_device);
+  return Device(selected_device, std::move(enabled_exts));
 }
 
-Device::Device(VkPhysicalDevice device) {
+Device::Device(VkPhysicalDevice device, std::vector<const char *> &&exts) {
+  float priorities[] = {0.5f};
+  VkDeviceQueueCreateInfo queue_info{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
+  queue_info.queueCount = 1;
+  // the 0th queue supports all operations,
+  // TODO: add specialized transfer queue (with it's own queue family index), and specialized compute queue?
+  queue_info.queueFamilyIndex = 0;
+  queue_info.pQueuePriorities = priorities;
+
+  VkPhysicalDeviceVulkan13Features features13{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
+  VkPhysicalDeviceFeatures2 features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+  features.pNext = &features13;
+
+  features13.dynamicRendering = true;
+  features13.synchronization2 = true;
+
   VkDeviceCreateInfo create_info{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
+  create_info.pNext = &features;
+  create_info.pQueueCreateInfos = &queue_info;
+  create_info.queueCreateInfoCount = 1;
+
+  create_info.ppEnabledExtensionNames = exts.data();
+  create_info.enabledExtensionCount = exts.size();
+
+  std::cout << exts.size() << ": ";
+  for (auto ext : exts)
+    std::cout << ext << ", ";
+  std::cout << std::endl;
 
   VK_CHECK(vkCreateDevice(device, &create_info, nullptr, &m_device));
+  volkLoadDevice(m_device);
+
+  vkGetDeviceQueue(m_device, 0, 0, &m_queue);
 }
+
+Device::~Device() { vkDestroyDevice(m_device, nullptr); }
 
 } // namespace craft::vk

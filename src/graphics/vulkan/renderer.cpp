@@ -1,18 +1,18 @@
 #include "renderer.hpp"
 
 namespace craft::vk {
-Renderer::Renderer()
-    : m_instance({{"VK_KHR_surface"},
-                  {"VK_KHR_win32_surface"},
+Renderer::Renderer(std::shared_ptr<Window> window)
+    : m_window(window), m_instance(m_window,
+                                   {
 #ifndef NDEBUG
-                  {"VK_EXT_debug_utils", false}
+                                       {"VK_EXT_debug_utils", false}
 #endif
-                 },
-                 {
+                                   },
+                                   {
 #ifndef NDEBUG
-                     "VK_LAYER_KHRONOS_validation"
+                                       "VK_LAYER_KHRONOS_validation"
 #endif
-                 }) {
+                                   }) {
   m_instance.SelectPhysicalDevice();
 }
 } // namespace craft::vk

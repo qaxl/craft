@@ -20,6 +20,8 @@ public:
   void PollEvents();
   bool IsOpen() { return m_window_is_open; }
 
+  SDL_Window *GetHandle() { return m_window; }
+
 private:
   SDL_Window *m_window = nullptr;
   bool m_window_is_open = true;

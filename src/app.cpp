@@ -1,4 +1,5 @@
 #include "app.hpp"
+#include "graphics/vulkan/renderer.hpp"
 #include "util/error.hpp"
 
 #include <SDL3/SDL.h>
@@ -24,19 +25,19 @@ std::optional<App> App::Init() {
     return std::nullopt;
   }
 
-  auto window = Window(1024, 768, "test");
+  auto window = std::make_shared<Window>(1024, 768, "test");
 
-  return SharedState{.window = std::move(window)};
+  return SharedState{.window = window, .renderer = {window}};
 }
 
 bool App::Run() {
-  while (m_state.window.IsOpen()) {
+  while (m_state.window->IsOpen()) {
     if (RuntimeError::HasAnError()) {
       // The main function
       return false;
     }
 
-    m_state.window.PollEvents();
+    m_state.window->PollEvents();
   }
 
   return true;

@@ -3,11 +3,12 @@
 #include "graphics/vulkan/renderer.hpp"
 #include "platform/window.hpp"
 
+#include <memory>
 #include <optional>
 
 namespace craft {
 struct SharedState {
-  Window window;
+  std::shared_ptr<Window> window;
   vk::Renderer renderer;
 };
 
