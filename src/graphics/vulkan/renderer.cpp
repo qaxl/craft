@@ -2,10 +2,13 @@
 #include "graphics/vulkan.hpp"
 
 #include <iostream>
+#include <set>
 #include <vector>
 
 namespace craft::vk {
-Renderer::Renderer() {
+struct
+
+    Renderer::Renderer() {
   uint32_t ext_count = 0;
   VKCHECK(vkEnumerateInstanceExtensionProperties(nullptr, &ext_count, nullptr));
 
@@ -13,7 +16,7 @@ Renderer::Renderer() {
   VKCHECK(
       vkEnumerateInstanceExtensionProperties(nullptr, &ext_count, exts.data()));
 
-  for (auto ext : exts) {
+  std::set < for (auto ext : exts) {
     std::cout << "Found an extension: " << ext.extensionName << std::endl;
   }
 }

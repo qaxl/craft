@@ -2,10 +2,6 @@
 #include "util/error.hpp"
 
 #include <SDL3/SDL.h>
-#include <atomic>
-#include <chrono>
-#include <mutex>
-#include <thread>
 #include <volk.h>
 
 namespace craft {

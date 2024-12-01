@@ -4,9 +4,7 @@
 #include <cstdlib>
 #include <exception>
 #include <iostream>
-#include <mutex>
 #include <new>
-#include <stacktrace>
 
 int main(int argc, char **argv) {
   auto app = craft::App::Init();

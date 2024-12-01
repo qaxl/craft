@@ -1,12 +1,9 @@
 #pragma once
 
-#include "graphics/vulkan.hpp"
 #include "graphics/vulkan/renderer.hpp"
 #include "platform/window.hpp"
 
-#include <memory>
 #include <optional>
-#include <string_view>
 
 namespace craft {
 struct SharedState {
