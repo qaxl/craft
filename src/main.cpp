@@ -1,7 +1,17 @@
-#define VK_USE_PLATFORM_XCB_KHR
-#include <volk.h>
-// TODO: in the future, use
-// [vk.xml](https://raw.githubusercontent.com/KhronosGroup/Vulkan-Docs/refs/heads/main/xml/vk.xml)
-// to load vulkan functions.
+#include "app.hpp"
 
-int main(int argc, char **argv) {}
+#include <cstdlib>
+#include <iostream>
+
+int main(int argc, char **argv) {
+  auto app = craft::App::Init();
+  if (!app) {
+    std::cout << "Couldn't initialize the program, due to an error: "
+              << craft::App::GetErrorString() << std::endl;
+    return EXIT_FAILURE;
+  } else {
+    // All errors happening from this point on will be fatal, if they are not
+    // handled gracefully. (The program will quit on an error.)
+    app->Run();
+  }
+}
