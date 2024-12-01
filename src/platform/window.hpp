@@ -1,5 +1,8 @@
 #pragma once
 
+#include "SDL3/SDL_video.h"
+#include <utility>
+
 struct SDL_Window;
 
 namespace craft {
@@ -21,6 +24,14 @@ public:
   bool IsOpen() { return m_window_is_open; }
 
   SDL_Window *GetHandle() { return m_window; }
+  void GetSize(int &width, int &height) { SDL_GetWindowSizeInPixels(m_window, &width, &height); }
+
+  std::pair<uint32_t, uint32_t> GetSize() {
+    int width, height;
+    GetSize(width, height);
+    // this converts them to uint, "safely"
+    return std::make_pair(width, height);
+  }
 
 private:
   SDL_Window *m_window = nullptr;

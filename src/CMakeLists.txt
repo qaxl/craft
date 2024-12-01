@@ -2,7 +2,6 @@ add_executable(craft
   main.cpp
   app.cpp
   
-  graphics/vulkan/primitives.cpp
   graphics/vulkan/renderer.cpp
 
   platform/window.cpp
