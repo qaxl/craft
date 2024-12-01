@@ -1,26 +1,31 @@
 #pragma once
 
+#include "graphics/vulkan.hpp"
+#include "graphics/vulkan/renderer.hpp"
+#include "platform/window.hpp"
+
 #include <memory>
 #include <optional>
+#include <string_view>
 
 namespace craft {
-struct SharedState {};
+struct SharedState {
+  Window window;
+  vk::Renderer renderer;
+};
 
 class App {
   // all shared state goes here, and it is a pointer since we cannot initialize
   // *everything* before `App::Init()` is called.
-  std::shared_ptr<SharedState> m_state;
+  SharedState m_state;
 
 public:
-  App() = default;
+  App(SharedState &&state) : m_state(std::move(state)) {}
+
   ~App();
 
-  // Initializes the whole application/program, on error it returns a nullopt.
+  // Initializes the whole application/program
   static std::optional<App> Init();
-  // Gets the latest error string.
-  // WARNING: Not thread-safe. Only call from the main thread.
-  static std::string_view GetErrorString();
-
-  void Run();
+  bool Run();
 };
 } // namespace craft

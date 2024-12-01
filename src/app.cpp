@@ -1,56 +1,50 @@
 #include "app.hpp"
+#include "util/error.hpp"
 
 #include <SDL3/SDL.h>
+#include <atomic>
+#include <chrono>
+#include <mutex>
+#include <thread>
 #include <volk.h>
 
 namespace craft {
-static std::string s_global_error_description;
-
 App::~App() { SDL_Quit(); }
 
 std::optional<App> App::Init() {
-  App app;
-
   if (SDL_Init(SDL_INIT_VIDEO) == false) {
-    s_global_error_description.append("SDL Initialization Failure:\n", 28);
-
-    // Truncated SDL error output.
-    const char *error = SDL_GetError();
-    size_t error_len = strlen(error);
-    if (error_len > (s_global_error_description.capacity() -
-                     s_global_error_description.size()))
-      error_len = (s_global_error_description.capacity() -
-                   s_global_error_description.size());
-
-    s_global_error_description.append(error, error_len);
+    RuntimeError::SetErrorString("SDL Initialization Failure",
+                                 EF_AppendSDLErrors);
 
     return std::nullopt;
   }
 
   if (volkInitialize() != VK_SUCCESS) {
-    static const char error[] =
+    RuntimeError::SetErrorString(
         "Vulkan Initialization Failure: couldn't load vulkan library "
         "functions. Does this computer support rendering with Vulkan? "
         "Currently we do not support other graphics APIs other than Vulkan; "
         "OpenGL support may be added in the future for better compability with "
-        "older hardware.";
-    size_t error_len = sizeof(error) / sizeof(*error);
+        "older hardware.");
 
-    s_global_error_description.append(error, error_len);
+    return std::nullopt;
   }
 
-  // Will preallocate here, if the program errors out due to memory
-  // constraints, then our error handling code won't crash the program.
-  // WARNING: If the message is longer than 4096 (ASCII) characters, it will
-  // get truncated.
-  s_global_error_description.reserve(4096);
+  auto window = Window(1024, 768, "test");
 
-  app.m_state = std::make_shared<SharedState>();
-
-  return app;
+  return SharedState{.window = std::move(window)};
 }
 
-std::string_view App::GetErrorString() { return s_global_error_description; }
+bool App::Run() {
+  while (m_state.window.IsOpen()) {
+    if (RuntimeError::HasAnError()) {
+      // The main function
+      return false;
+    }
 
-void App::Run() {}
+    m_state.window.PollEvents();
+  }
+
+  return true;
+}
 } // namespace craft
