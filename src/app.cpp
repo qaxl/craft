@@ -9,8 +9,7 @@ App::~App() { SDL_Quit(); }
 
 std::optional<App> App::Init() {
   if (SDL_Init(SDL_INIT_VIDEO) == false) {
-    RuntimeError::SetErrorString("SDL Initialization Failure",
-                                 EF_AppendSDLErrors);
+    RuntimeError::SetErrorString("SDL Initialization Failure", EF_AppendSDLErrors);
 
     return std::nullopt;
   }

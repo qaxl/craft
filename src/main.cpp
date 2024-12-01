@@ -26,11 +26,9 @@ int main(int argc, char **argv) {
     std::cout << "Application ran out of memory: " << ex.what() << std::endl;
     return EXIT_FAILURE;
   } catch (std::exception &ex) {
-    std::cout << "Application quit because of an exception: " << ex.what()
-              << std::endl;
+    std::cout << "Application quit because of an exception: " << ex.what() << std::endl;
   } catch (...) {
-    std::cout << "Application quit because of an unknown exception."
-              << std::endl;
+    std::cout << "Application quit because of an unknown exception." << std::endl;
   }
 
   return EXIT_SUCCESS;

@@ -5,12 +5,10 @@
 
 namespace craft {
 Window::Window(int width, int height, const char *title) {
-  m_window = SDL_CreateWindow(title, width, height,
-                              SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
+  m_window = SDL_CreateWindow(title, width, height, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
   if (!m_window) {
     RuntimeError::SetErrorString(
-        "Couldn't create a SDL window. Is there a display (server) available?",
-        EF_AppendSDLErrors);
+        "Couldn't create a SDL window. Is there a display (server) available?", EF_AppendSDLErrors);
   }
 }
 

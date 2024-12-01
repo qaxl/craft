@@ -1,23 +1,18 @@
 #include "renderer.hpp"
-#include "graphics/vulkan.hpp"
-
-#include <iostream>
-#include <set>
-#include <vector>
 
 namespace craft::vk {
-struct
-
-    Renderer::Renderer() {
-  uint32_t ext_count = 0;
-  VKCHECK(vkEnumerateInstanceExtensionProperties(nullptr, &ext_count, nullptr));
-
-  std::vector<VkExtensionProperties> exts(ext_count);
-  VKCHECK(
-      vkEnumerateInstanceExtensionProperties(nullptr, &ext_count, exts.data()));
-
-  std::set < for (auto ext : exts) {
-    std::cout << "Found an extension: " << ext.extensionName << std::endl;
-  }
+Renderer::Renderer()
+    : m_instance({{"VK_KHR_surface"},
+                  {"VK_KHR_win32_surface"},
+#ifndef NDEBUG
+                  {"VK_EXT_debug_utils", false}
+#endif
+                 },
+                 {
+#ifndef NDEBUG
+                     "VK_LAYER_KHRONOS_validation"
+#endif
+                 }) {
+  m_instance.SelectPhysicalDevice();
 }
 } // namespace craft::vk

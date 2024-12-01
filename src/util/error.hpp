@@ -23,21 +23,16 @@ private:
 enum ErrorFlags : uint32_t {
   EF_None,
   EF_AppendSDLErrors = 1 << 0,
-  EF_AppendVkErrors = 1 << 1,
+  EF_DumpStacktrace = 1 << 1,
 };
 
 class RuntimeError {
 public:
-  static bool HasAnError() {
-    return s_has_an_error.load(std::memory_order_relaxed);
-  }
+  static bool HasAnError() { return s_has_an_error.load(std::memory_order_relaxed); }
 
-  static void SetErrorString(std::string_view description,
-                             ErrorFlags flags = EF_None);
+  static void SetErrorString(std::string_view description, ErrorFlags flags = EF_None);
 
-  static ErrorString GetErrorString() {
-    return ErrorString(s_mutex, s_description);
-  }
+  static ErrorString GetErrorString() { return ErrorString(s_mutex, s_description); }
 
 private:
   RuntimeError() = default;

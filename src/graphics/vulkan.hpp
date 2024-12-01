@@ -1,5 +1,6 @@
 #pragma once
 
+#include <source_location>
 #include <string_view>
 
 #define VK_USE_PLATFORM_WIN32_KHR
@@ -10,17 +11,34 @@
 
 #include "util/error.hpp"
 
-#define VKCHECK(x) CheckResult(x, #x)
+#define STRINGIFY(x) #x
+#define STRING(x) STRINGIFY(x)
+#ifdef NDEBUG
+#define VK_CHECK(x) CheckResult(x)
+#else
+#define VK_CHECK(x) CheckResult(x, std::source_location::current())
+#endif
 
 namespace craft::vk {
 static std::string_view VkResultToStr(VkResult result);
 
-static void CheckResult(VkResult result, std::string_view function = "") {
+static constexpr void CheckResult(VkResult result,
+#ifndef NDEBUG
+                                  std::source_location location = std::source_location::current()
+#endif
+) {
   if (result != VK_SUCCESS) {
-    RuntimeError::SetErrorString(std::format("vulkan function {} error: {}",
-                                             function, VkResultToStr(result)));
+    RuntimeError::SetErrorString(std::format("vulkan error at {}@{}:{}: {}",
+#ifdef NDEBUG
+                                             "no", "debug",
+                                             "info"
+#else
+                                             location.file_name(), location.function_name(), location.line(),
+#endif
+                                             VkResultToStr(result)),
+                                 EF_DumpStacktrace);
   }
-}
+} // namespace craft::vk
 
 static std::string_view VkResultToStr(VkResult result) {
   switch (result) {
