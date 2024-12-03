@@ -98,7 +98,7 @@ static std::vector<const char *> CheckInstanceLayers(std::initializer_list<const
   }
 
   if (count != layers.size()) {
-    RuntimeError::Throw("Not all required Vulkan layers were enabled.");
+    RuntimeError::Throw("Not all required Vulkan layers were enabled!");
   }
 
   return enabled_layers;
@@ -336,7 +336,7 @@ static VkSwapchainKHR CreateSwapchain(VkPhysicalDevice physical_device, VkDevice
   // TODO: select best mode for our purposes (FIFO_KHR), but it's not available on all GPUs; Hence we need to test this
   // too while selecting the best suited GPU.
   create_info.presentMode = VK_PRESENT_MODE_FIFO_KHR;
-  create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+  create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
   create_info.imageFormat = VK_FORMAT_B8G8R8A8_UNORM;
   create_info.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
   create_info.imageExtent = extent;
@@ -385,9 +385,31 @@ Renderer::Renderer(std::shared_ptr<Window> window) : m_window{window} {
 
     VK_CHECK(vkCreateImageView(m_device, &create_info, nullptr, &image_view));
   }
+
+  InitCommands();
+  InitSyncStructures();
+
+  VmaAllocatorCreateInfo allocator_info{};
+  allocator_info.physicalDevice = m_physical_device;
+  allocator_info.device = m_device;
+  allocator_info.instance = m_instance;
+  allocator_info.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
+  vmaCreateAllocator(&allocator_info, &m_allocator);
 }
 
 Renderer::~Renderer() {
+  vkDeviceWaitIdle(m_device);
+
+  vmaDestroyAllocator(m_allocator);
+
+  for (auto &frame : m_frames) {
+    vkDestroyFence(m_device, frame.fe_render, nullptr);
+    vkDestroySemaphore(m_device, frame.sp_render, nullptr);
+    vkDestroySemaphore(m_device, frame.sp_swapchain, nullptr);
+
+    vkDestroyCommandPool(m_device, frame.command_pool, nullptr);
+  }
+
   for (auto image_view : m_swapchain_image_views) {
     vkDestroyImageView(m_device, image_view, nullptr);
   }
@@ -403,6 +425,154 @@ Renderer::~Renderer() {
 #endif
 
   vkDestroyInstance(m_instance, nullptr);
+}
+
+// TODO: vulkan_images.h?
+static VkImageSubresourceRange ImageSubresourceRange(VkImageAspectFlags aspect_mask) {
+  return VkImageSubresourceRange{
+      .aspectMask = aspect_mask, .levelCount = VK_REMAINING_MIP_LEVELS, .layerCount = VK_REMAINING_ARRAY_LAYERS};
+}
+
+static void TransitionImage(VkCommandBuffer cmd, VkImage image, VkImageLayout current_layout,
+                            VkImageLayout new_layout) {
+  VkImageMemoryBarrier2 image_barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+
+  image_barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+  image_barrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+  image_barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+  image_barrier.dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT;
+
+  image_barrier.oldLayout = current_layout;
+  image_barrier.newLayout = new_layout;
+
+  VkImageAspectFlags aspect_mask =
+      (new_layout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+  image_barrier.subresourceRange = ImageSubresourceRange(aspect_mask);
+  image_barrier.image = image;
+
+  VkDependencyInfo dep_info{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+  dep_info.imageMemoryBarrierCount = 1;
+  dep_info.pImageMemoryBarriers = &image_barrier;
+
+  vkCmdPipelineBarrier2(cmd, &dep_info);
+}
+
+static VkSemaphoreSubmitInfo SemaphoreSubmitInfo(VkPipelineStageFlags2 stage_mask, VkSemaphore semaphore) {
+  return VkSemaphoreSubmitInfo{
+      .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+      .semaphore = semaphore,
+      .value = 1,
+      .stageMask = stage_mask,
+  };
+}
+
+static VkCommandBufferSubmitInfo CommandBufferSubmitInfo(VkCommandBuffer cmd) {
+  return VkCommandBufferSubmitInfo{
+      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
+      .commandBuffer = cmd,
+  };
+}
+
+static VkSubmitInfo2 SubmitInfo(VkCommandBufferSubmitInfo *cmd, VkSemaphoreSubmitInfo *signal_semaphore,
+                                VkSemaphoreSubmitInfo *wait_semaphore) {
+  VkSubmitInfo2 info{VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+  info.waitSemaphoreInfoCount = wait_semaphore != nullptr;
+  info.pWaitSemaphoreInfos = wait_semaphore;
+
+  info.signalSemaphoreInfoCount = signal_semaphore != nullptr;
+  info.pSignalSemaphoreInfos = signal_semaphore;
+
+  info.commandBufferInfoCount = 1;
+  info.pCommandBufferInfos = cmd;
+
+  return info;
+}
+
+void Renderer::Draw() {
+  auto &frame = GetCurrentFrame();
+
+  VK_CHECK(vkWaitForFences(m_device, 1, &frame.fe_render, true, 1 * 1000 * 1000 * 1000));
+  VK_CHECK(vkResetFences(m_device, 1, &frame.fe_render));
+
+  uint32_t swapchain_image_index;
+  VK_CHECK(vkAcquireNextImageKHR(m_device, m_swapchain, 1 * 1000 * 1000 * 1000, frame.sp_swapchain, nullptr,
+                                 &swapchain_image_index));
+
+  VkCommandBuffer cmd = frame.command_buffer;
+  VK_CHECK(vkResetCommandBuffer(cmd, 0));
+
+  VkCommandBufferBeginInfo cmd_begin_info{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+  cmd_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+  VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
+
+  TransitionImage(cmd, m_swapchain_images[swapchain_image_index], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+
+  VkClearColorValue clearValue;
+  float flash = std::abs(std::sin(m_frame_number / 120.f));
+  float flash2 = std::abs(std::cos(m_frame_number / 240.f));
+  float flash3 = std::abs(std::tan(m_frame_number / 120.f));
+  clearValue = {{flash2, flash3, flash, 1.0f}};
+
+  VkImageSubresourceRange clearRange = ImageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
+
+  vkCmdClearColorImage(cmd, m_swapchain_images[swapchain_image_index], VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1,
+                       &clearRange);
+
+  TransitionImage(cmd, m_swapchain_images[swapchain_image_index], VK_IMAGE_LAYOUT_GENERAL,
+                  VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+
+  VK_CHECK(vkEndCommandBuffer(cmd));
+
+  VkCommandBufferSubmitInfo cmd_info = CommandBufferSubmitInfo(cmd);
+  VkSemaphoreSubmitInfo wait_info =
+      SemaphoreSubmitInfo(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, frame.sp_swapchain);
+  VkSemaphoreSubmitInfo signal_info = SemaphoreSubmitInfo(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, frame.sp_render);
+
+  VkSubmitInfo2 submit = SubmitInfo(&cmd_info, &signal_info, &wait_info);
+
+  VK_CHECK(vkQueueSubmit2(m_queue, 1, &submit, frame.fe_render));
+
+  VkPresentInfoKHR present_info{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
+  present_info.swapchainCount = 1;
+  present_info.pSwapchains = &m_swapchain;
+
+  present_info.waitSemaphoreCount = 1;
+  present_info.pWaitSemaphores = &frame.sp_render;
+
+  present_info.pImageIndices = &swapchain_image_index;
+
+  VK_CHECK(vkQueuePresentKHR(m_queue, &present_info));
+}
+
+void Renderer::InitCommands() {
+  VkCommandPoolCreateInfo create_info{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+  create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+  // TODO: dynamic
+  create_info.queueFamilyIndex = 0;
+
+  for (size_t i = 0; i < kMaxFramesInFlight; ++i) {
+    VK_CHECK(vkCreateCommandPool(m_device, &create_info, nullptr, &m_frames[i].command_pool));
+
+    VkCommandBufferAllocateInfo alloc_info{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+    alloc_info.commandPool = m_frames[i].command_pool;
+    alloc_info.commandBufferCount = 1;
+    alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+
+    VK_CHECK(vkAllocateCommandBuffers(m_device, &alloc_info, &m_frames[i].command_buffer));
+  }
+}
+
+void Renderer::InitSyncStructures() {
+  VkFenceCreateInfo fence_info{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, nullptr, VK_FENCE_CREATE_SIGNALED_BIT};
+  VkSemaphoreCreateInfo semaphore_info{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+
+  for (auto &frame : m_frames) {
+    VK_CHECK(vkCreateFence(m_device, &fence_info, nullptr, &frame.fe_render));
+
+    VK_CHECK(vkCreateSemaphore(m_device, &semaphore_info, nullptr, &frame.sp_swapchain));
+    VK_CHECK(vkCreateSemaphore(m_device, &semaphore_info, nullptr, &frame.sp_render));
+  }
 }
 
 } // namespace craft::vk

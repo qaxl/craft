@@ -9,7 +9,7 @@
 namespace craft {
 struct SharedState {
   std::shared_ptr<Window> window;
-  vk::Renderer renderer;
+  std::shared_ptr<vk::Renderer> renderer;
 };
 
 class App {

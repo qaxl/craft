@@ -26,8 +26,9 @@ std::optional<App> App::Init() {
   }
 
   auto window = std::make_shared<Window>(1024, 768, "test");
+  auto renderer = std::make_shared<vk::Renderer>(window);
 
-  return SharedState{.window = window, .renderer = {window}};
+  return SharedState{.window = window, .renderer = renderer};
 }
 
 bool App::Run() {
@@ -37,6 +38,7 @@ bool App::Run() {
       return false;
     }
 
+    m_state.renderer->Draw();
     m_state.window->PollEvents();
   }
 
