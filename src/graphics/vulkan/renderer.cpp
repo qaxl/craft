@@ -10,6 +10,7 @@
 #include <SDL3/SDL_vulkan.h>
 
 #include "graphics/vulkan.hpp"
+#include "pipeline.hpp"
 #include "util/error.hpp"
 #include "vulkan/vulkan_core.h"
 
@@ -298,12 +299,15 @@ static VkDevice CreateDevice(VkPhysicalDevice device, std::vector<const char *> 
   queue_info.queueFamilyIndex = 0;
   queue_info.pQueuePriorities = priorities;
 
-  VkPhysicalDeviceVulkan13Features features13{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
+  VkPhysicalDeviceVulkan12Features features12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+  VkPhysicalDeviceVulkan13Features features13{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES, &features12};
   VkPhysicalDeviceFeatures2 features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
   features.pNext = &features13;
 
   features13.dynamicRendering = true;
   features13.synchronization2 = true;
+
+  features12.bufferDeviceAddress = true;
 
   VkDeviceCreateInfo create_info{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
   create_info.pNext = &features;
@@ -349,6 +353,7 @@ static VkSwapchainKHR CreateSwapchain(VkPhysicalDevice physical_device, VkDevice
   create_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
 
   VK_CHECK(vkCreateSwapchainKHR(device, &create_info, nullptr, &swapchain));
+
   return swapchain;
 }
 
@@ -363,11 +368,56 @@ Renderer::Renderer(std::shared_ptr<Window> window) : m_window{window} {
   // TODO: support multiple queues and queue families
   vkGetDeviceQueue(m_device, 0, 0, &m_queue);
 
+  VmaVulkanFunctions funcs{.vkGetInstanceProcAddr = vkGetInstanceProcAddr, .vkGetDeviceProcAddr = vkGetDeviceProcAddr};
+
+  VmaAllocatorCreateInfo allocator_info{};
+  allocator_info.physicalDevice = m_physical_device;
+  allocator_info.device = m_device;
+  allocator_info.instance = m_instance;
+  allocator_info.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
+  allocator_info.pVulkanFunctions = &funcs;
+  vmaCreateAllocator(&allocator_info, &m_allocator);
+
   auto [width, height] = window->GetSize();
   VkExtent2D extent{width, height};
 
   m_surface = CreateSurfaceFromWindow(m_instance, window.get());
   m_swapchain = CreateSwapchain(m_physical_device, m_device, m_surface, extent);
+
+  // TODO: MOVE OUT OF THIS FUNCTION
+  VkExtent3D draw_image_extent{extent.width, extent.height, 1};
+  m_draw_image.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+  m_draw_image.extent = draw_image_extent;
+
+  VkImageUsageFlags draw_image_usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                                       VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+
+  VkImageCreateInfo img_info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+  img_info.format = m_draw_image.format;
+  img_info.usage = draw_image_usage;
+  img_info.extent = draw_image_extent;
+  img_info.mipLevels = 1;
+  img_info.arrayLayers = 1;
+  img_info.samples = VK_SAMPLE_COUNT_1_BIT;
+  img_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+  img_info.imageType = VK_IMAGE_TYPE_2D;
+
+  VmaAllocationCreateInfo img_alloc{};
+  img_alloc.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+  img_alloc.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+
+  VK_CHECK(vmaCreateImage(m_allocator, &img_info, &img_alloc, &m_draw_image.image, &m_draw_image.allocation, nullptr));
+
+  VkImageViewCreateInfo view_info{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+  view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+  view_info.image = m_draw_image.image;
+  view_info.format = m_draw_image.format;
+  view_info.subresourceRange.levelCount = 1;
+  view_info.subresourceRange.layerCount = 1;
+  view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+
+  VK_CHECK(vkCreateImageView(m_device, &view_info, nullptr, &m_draw_image.view));
+  // END OF MOVE OUT OF THIS FUNCTION.
 
   m_swapchain_images = GetProperties<VkImage>(vkGetSwapchainImagesKHR, m_device, m_swapchain);
   m_swapchain_image_views.resize(m_swapchain_images.size());
@@ -388,17 +438,21 @@ Renderer::Renderer(std::shared_ptr<Window> window) : m_window{window} {
 
   InitCommands();
   InitSyncStructures();
-
-  VmaAllocatorCreateInfo allocator_info{};
-  allocator_info.physicalDevice = m_physical_device;
-  allocator_info.device = m_device;
-  allocator_info.instance = m_instance;
-  allocator_info.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
-  vmaCreateAllocator(&allocator_info, &m_allocator);
+  InitDescriptors();
+  InitPipelines();
 }
 
 Renderer::~Renderer() {
   vkDeviceWaitIdle(m_device);
+
+  vkDestroyPipelineLayout(m_device, m_gradient_pipeline_layout, nullptr);
+  vkDestroyPipeline(m_device, m_gradient_pipeline, nullptr);
+
+  m_descriptor_allocator.DestroyPool(m_device);
+  vkDestroyDescriptorSetLayout(m_device, m_draw_image_descriptor_layout, nullptr);
+
+  vkDestroyImageView(m_device, m_draw_image.view, nullptr);
+  vmaDestroyImage(m_allocator, m_draw_image.image, m_draw_image.allocation);
 
   vmaDestroyAllocator(m_allocator);
 
@@ -457,6 +511,36 @@ static void TransitionImage(VkCommandBuffer cmd, VkImage image, VkImageLayout cu
   vkCmdPipelineBarrier2(cmd, &dep_info);
 }
 
+static void CloneImage(VkCommandBuffer cmd, VkImage source, VkImage destination, VkExtent2D source_size,
+                       VkExtent2D destination_size) {
+  VkImageBlit2 blit_region{VK_STRUCTURE_TYPE_IMAGE_BLIT_2};
+
+  blit_region.srcOffsets[1].x = source_size.width;
+  blit_region.srcOffsets[1].y = source_size.height;
+  blit_region.srcOffsets[1].z = 1;
+
+  blit_region.dstOffsets[1].x = destination_size.width;
+  blit_region.dstOffsets[1].y = destination_size.height;
+  blit_region.dstOffsets[1].z = 1;
+
+  blit_region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  blit_region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+
+  blit_region.srcSubresource.layerCount = 1;
+  blit_region.dstSubresource.layerCount = 1;
+
+  VkBlitImageInfo2 blit_info{VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2};
+  blit_info.srcImage = source;
+  blit_info.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+  blit_info.dstImage = destination;
+  blit_info.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+  blit_info.filter = VK_FILTER_LINEAR;
+  blit_info.regionCount = 1;
+  blit_info.pRegions = &blit_region;
+
+  vkCmdBlitImage2(cmd, &blit_info);
+}
+
 static VkSemaphoreSubmitInfo SemaphoreSubmitInfo(VkPipelineStageFlags2 stage_mask, VkSemaphore semaphore) {
   return VkSemaphoreSubmitInfo{
       .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
@@ -504,22 +588,38 @@ void Renderer::Draw() {
   VkCommandBufferBeginInfo cmd_begin_info{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
   cmd_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
+  m_draw_extent.width = m_draw_image.extent.width;
+  m_draw_extent.height = m_draw_image.extent.height;
+
   VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
 
-  TransitionImage(cmd, m_swapchain_images[swapchain_image_index], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+  // Draw straight to the swapchain image.
+  if (false) {
+    TransitionImage(cmd, m_swapchain_images[swapchain_image_index], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
 
-  VkClearColorValue clearValue;
-  float flash = std::abs(std::sin(m_frame_number / 120.f));
-  float flash2 = std::abs(std::cos(m_frame_number / 240.f));
-  float flash3 = std::abs(std::tan(m_frame_number / 120.f));
-  clearValue = {{flash2, flash3, flash, 1.0f}};
+    VkClearColorValue clearValue;
+    float flash = std::abs(std::sin(m_frame_number / 120.f));
+    float flash2 = std::abs(std::cos(m_frame_number / 240.f));
+    float flash3 = std::abs(std::tan(m_frame_number / 120.f));
+    clearValue = {{flash2, flash3, flash, 1.0f}};
 
-  VkImageSubresourceRange clearRange = ImageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
+    VkImageSubresourceRange clearRange = ImageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
 
-  vkCmdClearColorImage(cmd, m_swapchain_images[swapchain_image_index], VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1,
-                       &clearRange);
+    vkCmdClearColorImage(cmd, m_swapchain_images[swapchain_image_index], VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1,
+                         &clearRange);
 
-  TransitionImage(cmd, m_swapchain_images[swapchain_image_index], VK_IMAGE_LAYOUT_GENERAL,
+    TransitionImage(cmd, m_swapchain_images[swapchain_image_index], VK_IMAGE_LAYOUT_GENERAL,
+                    VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+  }
+
+  TransitionImage(cmd, m_draw_image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+  DrawBackground(cmd);
+  TransitionImage(cmd, m_draw_image.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+  TransitionImage(cmd, m_swapchain_images[swapchain_image_index], VK_IMAGE_LAYOUT_UNDEFINED,
+                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+  CloneImage(cmd, m_draw_image.image, m_swapchain_images[swapchain_image_index], m_draw_extent, m_draw_extent);
+  TransitionImage(cmd, m_swapchain_images[swapchain_image_index], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                   VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
   VK_CHECK(vkEndCommandBuffer(cmd));
@@ -543,6 +643,19 @@ void Renderer::Draw() {
   present_info.pImageIndices = &swapchain_image_index;
 
   VK_CHECK(vkQueuePresentKHR(m_queue, &present_info));
+}
+
+void Renderer::DrawBackground(VkCommandBuffer cmd) {
+  float flash = std::abs(std::sin(m_frame_number / 120.f));
+  VkClearColorValue clear_value{{0.f, 0.f, flash, 1.f}};
+
+  VkImageSubresourceRange clear_range = ImageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
+
+  // vkCmdClearColorImage(cmd, m_draw_image.image, VK_IMAGE_LAYOUT_GENERAL, &clear_value, 1, &clear_range);
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_gradient_pipeline);
+  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_gradient_pipeline_layout, 0, 1,
+                          &m_draw_image_descriptors, 0, nullptr);
+  vkCmdDispatch(cmd, std::ceil(m_draw_extent.width / 16.0), std::ceil(m_draw_extent.height / 16.0), 1);
 }
 
 void Renderer::InitCommands() {
@@ -573,6 +686,57 @@ void Renderer::InitSyncStructures() {
     VK_CHECK(vkCreateSemaphore(m_device, &semaphore_info, nullptr, &frame.sp_swapchain));
     VK_CHECK(vkCreateSemaphore(m_device, &semaphore_info, nullptr, &frame.sp_render));
   }
+}
+
+void Renderer::InitDescriptors() {
+  std::array<DescriptorAllocator::PoolSizeRatio, 1> sizes{
+      DescriptorAllocator::PoolSizeRatio{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1}};
+  m_descriptor_allocator.InitPool(m_device, 10, sizes);
+
+  DescriptorLayoutBuilder builder;
+  builder.AddBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+  m_draw_image_descriptor_layout = builder.Build(m_device, VK_SHADER_STAGE_COMPUTE_BIT);
+
+  m_draw_image_descriptors = m_descriptor_allocator.Allocate(m_device, m_draw_image_descriptor_layout);
+
+  VkDescriptorImageInfo info{};
+  info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+  info.imageView = m_draw_image.view;
+
+  VkWriteDescriptorSet draw_image_write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+  draw_image_write.dstSet = m_draw_image_descriptors;
+  draw_image_write.descriptorCount = 1;
+  draw_image_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+  draw_image_write.pImageInfo = &info;
+
+  vkUpdateDescriptorSets(m_device, 1, &draw_image_write, 0, nullptr);
+}
+
+void Renderer::InitPipelines() { InitBackgroundPipelines(); }
+
+void Renderer::InitBackgroundPipelines() {
+  VkPipelineLayoutCreateInfo compute_layout{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+  compute_layout.setLayoutCount = 1;
+  compute_layout.pSetLayouts = &m_draw_image_descriptor_layout;
+
+  VK_CHECK(vkCreatePipelineLayout(m_device, &compute_layout, nullptr, &m_gradient_pipeline_layout));
+
+  auto compute_shader = LoadShaderModule("../shaders/gradient.comp.spv", m_device);
+  if (!compute_shader) {
+    RuntimeError::Throw("Error occurred while trying to load compute shader.");
+  }
+
+  VkPipelineShaderStageCreateInfo stage_info{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+  stage_info.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+  stage_info.module = compute_shader.value();
+  stage_info.pName = "main";
+
+  VkComputePipelineCreateInfo compute_pipeline_info{VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+  compute_pipeline_info.layout = m_gradient_pipeline_layout;
+  compute_pipeline_info.stage = stage_info;
+
+  VK_CHECK(vkCreateComputePipelines(m_device, nullptr, 1, &compute_pipeline_info, nullptr, &m_gradient_pipeline));
+  vkDestroyShaderModule(m_device, stage_info.module, nullptr);
 }
 
 } // namespace craft::vk

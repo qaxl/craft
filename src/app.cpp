@@ -1,9 +1,12 @@
 #include "app.hpp"
 #include "graphics/vulkan/renderer.hpp"
+#include "math/color.hpp"
 #include "util/error.hpp"
 
 #include <SDL3/SDL.h>
 #include <volk.h>
+
+#include <iostream>
 
 namespace craft {
 App::~App() { SDL_Quit(); }
@@ -27,6 +30,8 @@ std::optional<App> App::Init() {
 
   auto window = std::make_shared<Window>(1024, 768, "test");
   auto renderer = std::make_shared<vk::Renderer>(window);
+
+  std::cout << colors::kWhite.v[0] << std::endl;
 
   return SharedState{.window = window, .renderer = renderer};
 }

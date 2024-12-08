@@ -8,6 +8,8 @@
 #include <memory>
 #include <vector>
 
+#include "descriptor.hpp"
+#include "image.hpp"
 #include "platform/window.hpp"
 
 namespace craft::vk {
@@ -43,6 +45,11 @@ public:
 private:
   void InitCommands();
   void InitSyncStructures();
+  void InitDescriptors();
+  void InitPipelines();
+  void InitBackgroundPipelines();
+
+  void DrawBackground(VkCommandBuffer cmd);
 
 private:
   std::shared_ptr<Window> m_window;
@@ -64,5 +71,18 @@ private:
   std::array<FrameData, kMaxFramesInFlight> m_frames;
 
   VmaAllocator m_allocator;
+
+  AllocatedImage m_draw_image;
+  VkExtent2D m_draw_extent;
+
+  DescriptorAllocator m_descriptor_allocator;
+
+  VkDescriptorSet m_draw_image_descriptors;
+  VkDescriptorSetLayout m_draw_image_descriptor_layout;
+
+  VkPipeline m_gradient_pipeline;
+  VkPipelineLayout m_gradient_pipeline_layout;
+
+  VkPipelineCache m_pipeline_cache;
 };
 } // namespace craft::vk
