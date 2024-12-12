@@ -1,5 +1,8 @@
 #include "app.hpp"
 #include "graphics/vulkan/renderer.hpp"
+#include "imgui.h"
+#include "imgui_impl_sdl3.h"
+#include "imgui_impl_vulkan.h"
 #include "math/color.hpp"
 #include "util/error.hpp"
 
@@ -42,6 +45,14 @@ bool App::Run() {
       // The main function
       return false;
     }
+
+    ImGui_ImplVulkan_NewFrame();
+    ImGui_ImplSDL3_NewFrame();
+    ImGui::NewFrame();
+
+    ImGui::ShowDemoWindow();
+
+    ImGui::Render();
 
     m_state.renderer->Draw();
     m_state.window->PollEvents();

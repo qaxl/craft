@@ -2,6 +2,8 @@
 #include "util/error.hpp"
 
 #include <SDL3/SDL.h>
+#include <imgui_impl_sdl3.h>
+#include <thread>
 
 namespace craft {
 Window::Window(int width, int height, const char *title) {
@@ -19,13 +21,31 @@ Window::~Window() {
 
 void Window::PollEvents() {
   SDL_Event event;
-  while (SDL_PollEvent(&event)) {
-    switch (event.type) {
-    case SDL_EVENT_QUIT:
-    case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
-      m_window_is_open = false;
-      break;
+  bool spin = false;
+
+  do {
+    while (SDL_PollEvent(&event)) {
+      switch (event.type) {
+      case SDL_EVENT_QUIT:
+      case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
+        m_window_is_open = false;
+        break;
+
+      case SDL_EVENT_WINDOW_MINIMIZED:
+        spin = true;
+        break;
+
+      case SDL_EVENT_WINDOW_RESTORED:
+        spin = false;
+        break;
+      }
+
+      ImGui_ImplSDL3_ProcessEvent(&event);
     }
-  }
+
+    if (spin) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+  } while (spin);
 }
 } // namespace craft

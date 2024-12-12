@@ -5,6 +5,7 @@
 #include <vk_mem_alloc.h>
 
 #include <array>
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -30,7 +31,7 @@ struct FrameData {
 };
 
 constexpr const size_t kMaxFramesInFlight = 3;
-constexpr const size_t kMinFramesInFlight = 1;
+constexpr const size_t kMinFramesInFlight = 2;
 
 class Renderer {
 public:
@@ -41,6 +42,7 @@ public:
   FrameData &GetCurrentFrame() { return m_frames[m_frame_number++ % kMaxFramesInFlight]; }
 
   void Draw();
+  void SubmitNow(std::function<void(VkCommandBuffer)> f);
 
 private:
   void InitCommands();
@@ -48,8 +50,10 @@ private:
   void InitDescriptors();
   void InitPipelines();
   void InitBackgroundPipelines();
+  void InitImGui();
 
   void DrawBackground(VkCommandBuffer cmd);
+  void DrawGUI(VkCommandBuffer cmd, VkImageView view);
 
 private:
   std::shared_ptr<Window> m_window;
@@ -84,5 +88,8 @@ private:
   VkPipelineLayout m_gradient_pipeline_layout;
 
   VkPipelineCache m_pipeline_cache;
+
+  // ImGui
+  VkDescriptorPool m_imgui_pool;
 };
 } // namespace craft::vk

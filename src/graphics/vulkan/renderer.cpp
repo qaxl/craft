@@ -8,6 +8,9 @@
 #include <vector>
 
 #include <SDL3/SDL_vulkan.h>
+#include <imgui.h>
+#include <imgui_impl_sdl3.h>
+#include <imgui_impl_vulkan.h>
 
 #include "graphics/vulkan.hpp"
 #include "pipeline.hpp"
@@ -198,7 +201,8 @@ static VkInstance CreateInstance(std::shared_ptr<Window> window, std::initialize
 static VkPhysicalDevice SelectPhysicalDevice(VkInstance instance, std::vector<const char *> &enabled_exts) {
   auto devices = GetProperties<VkPhysicalDevice>(vkEnumeratePhysicalDevices, instance);
 
-  std::array<const char *, 1> req_exts{VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+  // We're targeting Vulkan 1.3, but ImGui is retarded and requires this extension to be enabled anyway.
+  std::array<const char *, 2> req_exts{VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME, VK_KHR_SWAPCHAIN_EXTENSION_NAME};
   std::array<const char *, 0> opt_exts{};
 
   VkPhysicalDevice selected_device = VK_NULL_HANDLE;
@@ -241,6 +245,8 @@ static VkPhysicalDevice SelectPhysicalDevice(VkInstance instance, std::vector<co
       }
     }
 
+    std::sort(enabled_exts.begin(), enabled_exts.end());
+    // std::sort(req_exts.begin(), req_exts.end());
     if (!std::includes(enabled_exts.begin(), enabled_exts.end(), req_exts.begin(), req_exts.end())) {
       std::cout << "Can't use device " << props.deviceName << " because it doesn't support all necessary extensions."
                 << std::endl;
@@ -440,10 +446,21 @@ Renderer::Renderer(std::shared_ptr<Window> window) : m_window{window} {
   InitSyncStructures();
   InitDescriptors();
   InitPipelines();
+
+  InitImGui();
 }
 
 Renderer::~Renderer() {
+  std::cout << "Wait... ";
   vkDeviceWaitIdle(m_device);
+  std::cout << "Destroy..." << std::endl;
+
+  // ImGui being retarded again?
+  ImGui_ImplSDL3_Shutdown();
+  ImGui_ImplVulkan_Shutdown();
+  vkDestroyDescriptorPool(m_device, m_imgui_pool, nullptr);
+
+  ImGui::DestroyContext();
 
   vkDestroyPipelineLayout(m_device, m_gradient_pipeline_layout, nullptr);
   vkDestroyPipeline(m_device, m_gradient_pipeline, nullptr);
@@ -618,8 +635,23 @@ void Renderer::Draw() {
   TransitionImage(cmd, m_swapchain_images[swapchain_image_index], VK_IMAGE_LAYOUT_UNDEFINED,
                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
+  /*
+        vkutil::copy_image_to_image(cmd, _drawImage.image, _swapchainImages[swapchainImageIndex], _drawExtent,
+_swapchainExtent);
+
+// set swapchain image layout to Attachment Optimal so we can draw it
+vkutil::transition_image(cmd, _swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+//draw imgui into the swapchain image
+draw_imgui(cmd,  _swapchainImageViews[swapchainImageIndex]);*/
+
   CloneImage(cmd, m_draw_image.image, m_swapchain_images[swapchain_image_index], m_draw_extent, m_draw_extent);
   TransitionImage(cmd, m_swapchain_images[swapchain_image_index], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                  VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+  DrawGUI(cmd, m_swapchain_image_views[swapchain_image_index]);
+  TransitionImage(cmd, m_swapchain_images[swapchain_image_index], VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                   VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
   VK_CHECK(vkEndCommandBuffer(cmd));
@@ -737,6 +769,137 @@ void Renderer::InitBackgroundPipelines() {
 
   VK_CHECK(vkCreateComputePipelines(m_device, nullptr, 1, &compute_pipeline_info, nullptr, &m_gradient_pipeline));
   vkDestroyShaderModule(m_device, stage_info.module, nullptr);
+}
+
+struct ImmSbm_ {
+  VkFence fence;
+  VkCommandBuffer cmd;
+  VkCommandPool pool;
+  VkDevice device;
+
+  ~ImmSbm_() { // TODO: this most likely won't work because this is in static program memory which gets destroyed last.
+    vkDestroyCommandPool(device, pool, nullptr);
+    vkDestroyFence(device, fence, nullptr);
+  }
+};
+
+static std::shared_ptr<ImmSbm_> CreateImmediateSubmissionStructures(VkDevice device) {
+  auto sbm = std::make_shared<ImmSbm_>();
+
+  VkCommandPoolCreateInfo create_info{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+  create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+  // TODO: dynamic
+  create_info.queueFamilyIndex = 0;
+  VK_CHECK(vkCreateCommandPool(device, &create_info, nullptr, &sbm->pool));
+
+  VkCommandBufferAllocateInfo alloc_info{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+  alloc_info.commandPool = sbm->pool;
+  alloc_info.commandBufferCount = 1;
+  alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+
+  VK_CHECK(vkAllocateCommandBuffers(device, &alloc_info, &sbm->cmd));
+
+  VkFenceCreateInfo fence_info{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, nullptr, VK_FENCE_CREATE_SIGNALED_BIT};
+  VK_CHECK(vkCreateFence(device, &fence_info, nullptr, &sbm->fence));
+
+  return sbm;
+}
+
+// TODO: a dedicated submit queue, and perhaps a transfer queue
+void Renderer::SubmitNow(std::function<void(VkCommandBuffer)> f) {
+  static thread_local auto imm = CreateImmediateSubmissionStructures(m_device);
+
+  VK_CHECK(vkResetFences(m_device, 1, &imm->fence));
+  VK_CHECK(vkResetCommandBuffer(imm->cmd, 0));
+
+  VkCommandBufferBeginInfo cmd_begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+  cmd_begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+  VK_CHECK(vkBeginCommandBuffer(imm->cmd, &cmd_begin));
+
+  f(imm->cmd);
+
+  VK_CHECK(vkEndCommandBuffer(imm->cmd));
+
+  VkCommandBufferSubmitInfo cmd_info{VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
+  cmd_info.commandBuffer = imm->cmd;
+  VkSubmitInfo2 submit = SubmitInfo(&cmd_info, nullptr, nullptr);
+
+  VK_CHECK(vkQueueSubmit2(m_queue, 1, &submit, imm->fence));
+  VK_CHECK(vkWaitForFences(m_device, 1, &imm->fence, VK_TRUE, 1000'000'000));
+}
+
+static VkRenderingAttachmentInfo AttachmentInfo(VkImageView view, VkClearValue *clear,
+                                                VkImageLayout layout /*= VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL*/) {
+  VkRenderingAttachmentInfo color_attachment{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+  color_attachment.imageView = view;
+  color_attachment.imageLayout = layout;
+  color_attachment.loadOp = clear ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+  color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+  if (clear) {
+    color_attachment.clearValue = *clear;
+  }
+
+  return color_attachment;
+}
+
+void Renderer::InitImGui() {
+  VkDescriptorPoolSize pool_sizes[] = {
+      {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1},
+  };
+
+  VkDescriptorPoolCreateInfo pool_info{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+  pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+  pool_info.maxSets = 1;
+  pool_info.poolSizeCount = sizeof(pool_sizes) / sizeof(*pool_sizes);
+  pool_info.pPoolSizes = pool_sizes;
+
+  VK_CHECK(vkCreateDescriptorPool(m_device, &pool_info, nullptr, &m_imgui_pool));
+
+  ImGui::CreateContext();
+  ImGuiIO &io = ImGui::GetIO();
+
+  ImGui_ImplSDL3_InitForVulkan(m_window->GetHandle());
+
+  VkFormat format = VK_FORMAT_B8G8R8A8_UNORM;
+  ImGui_ImplVulkan_InitInfo init_info{
+      .Instance = m_instance,
+      .PhysicalDevice = m_physical_device,
+      .Device = m_device,
+      .Queue = m_queue,
+      .DescriptorPool = m_imgui_pool,
+      .MinImageCount = kMinFramesInFlight,
+      .ImageCount = kMaxFramesInFlight,
+      .MSAASamples = VK_SAMPLE_COUNT_1_BIT,
+      .UseDynamicRendering = true,
+      .PipelineRenderingCreateInfo = {VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO, nullptr, 0, 1, &format},
+      .CheckVkResultFn = [](VkResult res) { CheckResult(res); },
+  };
+
+  ImGui_ImplVulkan_LoadFunctions(
+      [](const char *function_name, void *u) {
+        return vkGetInstanceProcAddr(static_cast<Renderer *>(u)->m_instance, function_name);
+      },
+      this);
+
+  ImGui_ImplVulkan_Init(&init_info);
+  ImGui_ImplVulkan_CreateFontsTexture();
+}
+
+void Renderer::DrawGUI(VkCommandBuffer cmd, VkImageView view) {
+  VkRenderingAttachmentInfo color_attachment = AttachmentInfo(view, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+  VkRenderingInfo render_info{VK_STRUCTURE_TYPE_RENDERING_INFO};
+  render_info.colorAttachmentCount = 1;
+  render_info.pColorAttachments = &color_attachment;
+  render_info.renderArea.extent = m_draw_extent;
+  render_info.layerCount = 1;
+
+  vkCmdBeginRendering(cmd, &render_info);
+
+  ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
+
+  vkCmdEndRendering(cmd);
 }
 
 } // namespace craft::vk
