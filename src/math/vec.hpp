@@ -3,7 +3,7 @@
 #include "mat.hpp"
 
 namespace craft {
-template <typename T, size_t N> struct Vec : public Mat<T, N, 1> {};
+template <typename T, size_t N> using Vec = Mat<T, 1, N>;
 
 // Common specializations of Vec
 using Rect = Vec<float, 4>;

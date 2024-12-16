@@ -11,6 +11,7 @@
 
 #include "descriptor.hpp"
 #include "image.hpp"
+#include "math/vec.hpp"
 #include "platform/window.hpp"
 
 namespace craft::vk {
@@ -30,6 +31,19 @@ struct FrameData {
   VkFence fe_render;
 };
 
+struct ComputePushConstants {
+  std::array<Vec<float, 4>, 4> data;
+};
+
+struct ComputeEffect {
+  std::string_view name;
+
+  VkPipeline pipeline;
+  VkPipelineLayout layout;
+
+  ComputePushConstants pc;
+};
+
 constexpr const size_t kMaxFramesInFlight = 3;
 constexpr const size_t kMinFramesInFlight = 2;
 
@@ -40,6 +54,9 @@ public:
 
   // TODO: configurable?
   FrameData &GetCurrentFrame() { return m_frames[m_frame_number++ % kMaxFramesInFlight]; }
+
+  ComputeEffect &GetCurrentEffect() { return m_bg_effects[m_current_bg_effect]; }
+  void SetCurrentEffect(int index) { m_current_bg_effect = index % m_bg_effects.size(); }
 
   void Draw();
   void SubmitNow(std::function<void(VkCommandBuffer)> f);
@@ -84,12 +101,16 @@ private:
   VkDescriptorSet m_draw_image_descriptors;
   VkDescriptorSetLayout m_draw_image_descriptor_layout;
 
-  VkPipeline m_gradient_pipeline;
+  // VkPipeline m_gradient_pipeline;
   VkPipelineLayout m_gradient_pipeline_layout;
 
   VkPipelineCache m_pipeline_cache;
 
   // ImGui
   VkDescriptorPool m_imgui_pool;
+
+  // Custom backgrounds ;)
+  int m_current_bg_effect = 0;
+  std::vector<ComputeEffect> m_bg_effects;
 };
 } // namespace craft::vk

@@ -463,7 +463,10 @@ Renderer::~Renderer() {
   ImGui::DestroyContext();
 
   vkDestroyPipelineLayout(m_device, m_gradient_pipeline_layout, nullptr);
-  vkDestroyPipeline(m_device, m_gradient_pipeline, nullptr);
+  for (auto &bg_effect : m_bg_effects) {
+    vkDestroyPipeline(m_device, bg_effect.pipeline, nullptr);
+  }
+  // vkDestroyPipeline(m_device, m_gradient_pipeline, nullptr);
 
   m_descriptor_allocator.DestroyPool(m_device);
   vkDestroyDescriptorSetLayout(m_device, m_draw_image_descriptor_layout, nullptr);
@@ -683,10 +686,19 @@ void Renderer::DrawBackground(VkCommandBuffer cmd) {
 
   VkImageSubresourceRange clear_range = ImageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
 
+  ComputeEffect &effect = m_bg_effects[m_current_bg_effect];
+
   // vkCmdClearColorImage(cmd, m_draw_image.image, VK_IMAGE_LAYOUT_GENERAL, &clear_value, 1, &clear_range);
-  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_gradient_pipeline);
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, effect.pipeline);
   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_gradient_pipeline_layout, 0, 1,
                           &m_draw_image_descriptors, 0, nullptr);
+
+  // ComputePushConstants pc{};
+  // pc.data[0] = Vec<float, 4>(1.f, 0.f, 0.f, 1.f);
+  // pc.data[1] = Vec<float, 4>(0.f, 0.f, 1.f, 1.f);
+  vkCmdPushConstants(cmd, m_gradient_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants),
+                     &effect.pc);
+
   vkCmdDispatch(cmd, std::ceil(m_draw_extent.width / 16.0), std::ceil(m_draw_extent.height / 16.0), 1);
 }
 
@@ -751,24 +763,46 @@ void Renderer::InitBackgroundPipelines() {
   compute_layout.setLayoutCount = 1;
   compute_layout.pSetLayouts = &m_draw_image_descriptor_layout;
 
+  VkPushConstantRange push_constants{};
+  push_constants.size = sizeof(ComputePushConstants);
+  push_constants.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+  compute_layout.pushConstantRangeCount = 1;
+  compute_layout.pPushConstantRanges = &push_constants;
+
   VK_CHECK(vkCreatePipelineLayout(m_device, &compute_layout, nullptr, &m_gradient_pipeline_layout));
 
-  auto compute_shader = LoadShaderModule("../shaders/gradient.comp.spv", m_device);
-  if (!compute_shader) {
+  auto gradient_shader = LoadShaderModule("../shaders/gradient.comp.spv", m_device);
+  auto sky_shader = LoadShaderModule("../shaders/sky.comp.spv", m_device);
+  if (!gradient_shader || !sky_shader) {
     RuntimeError::Throw("Error occurred while trying to load compute shader.");
   }
 
   VkPipelineShaderStageCreateInfo stage_info{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
   stage_info.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-  stage_info.module = compute_shader.value();
+  stage_info.module = gradient_shader.value();
   stage_info.pName = "main";
 
   VkComputePipelineCreateInfo compute_pipeline_info{VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
   compute_pipeline_info.layout = m_gradient_pipeline_layout;
   compute_pipeline_info.stage = stage_info;
 
-  VK_CHECK(vkCreateComputePipelines(m_device, nullptr, 1, &compute_pipeline_info, nullptr, &m_gradient_pipeline));
-  vkDestroyShaderModule(m_device, stage_info.module, nullptr);
+  ComputeEffect gradient{.name = "Gradient",
+                         .layout = m_gradient_pipeline_layout,
+                         .pc = {{Vec<float, 4>{1.f, 0.f, 0.f, 1.f}, {0.f, 0.f, 1.f, 1.f}}}};
+
+  ComputeEffect sky{
+      .name = "Sky", .layout = m_gradient_pipeline_layout, .pc = {{Vec<float, 4>{0.1f, 0.2f, 0.4f, 0.97f}}}};
+
+  VK_CHECK(vkCreateComputePipelines(m_device, nullptr, 1, &compute_pipeline_info, nullptr, &gradient.pipeline));
+  vkDestroyShaderModule(m_device, compute_pipeline_info.stage.module, nullptr);
+
+  compute_pipeline_info.stage.module = sky_shader.value();
+  VK_CHECK(vkCreateComputePipelines(m_device, nullptr, 1, &compute_pipeline_info, nullptr, &sky.pipeline));
+  vkDestroyShaderModule(m_device, compute_pipeline_info.stage.module, nullptr);
+
+  m_bg_effects.push_back(gradient);
+  m_bg_effects.push_back(sky);
 }
 
 struct ImmSbm_ {

@@ -50,7 +50,24 @@ bool App::Run() {
     ImGui_ImplSDL3_NewFrame();
     ImGui::NewFrame();
 
-    ImGui::ShowDemoWindow();
+    // ImGui::ShowDemoWindow();
+
+    if (ImGui::Begin("Background Settings")) {
+      auto &selected = m_state.renderer->GetCurrentEffect();
+      static int current = 0;
+
+      ImGui::Text("Current Effect: %s", selected.name.data());
+      ImGui::SliderInt("Effect Index", &current, 0, 2);
+
+      ImGui::InputFloat4("push constant data[0]", selected.pc.data[0].v[0]);
+      ImGui::InputFloat4("push constant data[1]", selected.pc.data[1].v[0]);
+      ImGui::InputFloat4("push constant data[2]", selected.pc.data[2].v[0]);
+      ImGui::InputFloat4("push constant data[3]", selected.pc.data[3].v[0]);
+
+      std::cout << "Current Effect: " << current << std::endl;
+      m_state.renderer->SetCurrentEffect(current);
+    }
+    ImGui::End();
 
     ImGui::Render();
 

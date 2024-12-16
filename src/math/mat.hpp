@@ -1,21 +1,24 @@
 #pragma once
 
+#include <utility>
+
 namespace craft {
 template <typename T, size_t N, size_t M> struct Mat {
   T v[N][M];
 
+  constexpr Mat() : v{} {}
+
   template <typename... Args> constexpr Mat(Args &&...args) {
     static_assert(sizeof...(args) == N * M, "Number of arguments must match the size of the matrix");
-    init(0, std::forward<Args>(args)...); // Delegate to helper function
+    init(std::forward<Args>(args)...);
   }
 
 private:
-  // Helper function to initialize matrix elements recursively
-  template <typename... Args> constexpr void init(size_t idx, T value, Args &&...args) {
-    v[idx / M][idx % M] = value; // Map 1D index to 2D
-    init(idx + 1, std::forward<Args>(args)...);
+  template <typename... Args> constexpr void init(Args &&...args) {
+    T flat[] = {static_cast<T>(args)...};
+    for (size_t i = 0; i < N * M; ++i) {
+      v[i / M][i % M] = flat[i];
+    }
   }
-
-  constexpr void init(size_t) {}
 };
 } // namespace craft
