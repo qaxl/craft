@@ -12,8 +12,13 @@ add_library(imgui
     imgui/imgui.cpp
 
     imgui/backends/imgui_impl_sdl3.cpp
-    imgui/backends/imgui_impl_vulkan.cpp)
+    imgui/backends/imgui_impl_vulkan.cpp
+    
+    # ImPlot (extension to ImGui)
+    implot/implot_demo.cpp
+    implot/implot_items.cpp
+    implot/implot.cpp)
 
 target_link_libraries(imgui SDL3::SDL3 volk)
 target_compile_definitions(imgui PUBLIC IMGUI_IMPL_VULKAN_NO_PROTOTYPES)
-target_include_directories(imgui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/imgui ${CMAKE_CURRENT_SOURCE_DIR}/imgui/backends)
+target_include_directories(imgui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/imgui ${CMAKE_CURRENT_SOURCE_DIR}/imgui/backends ${CMAKE_CURRENT_SOURCE_DIR}/implot)

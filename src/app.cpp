@@ -5,6 +5,7 @@
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_vulkan.h>
+#include <implot.h>
 
 #include <SDL3/SDL.h>
 #include <volk.h>
@@ -38,6 +39,9 @@ App::App() {
   m_window = std::make_shared<Window>(1024, 768, "test");
   m_renderer = std::make_shared<vk::Renderer>(m_window);
 
+  // TODO: move this somewhere
+  ImPlot::CreateContext();
+
   // if (!m_socket.Connect("127.0.0.1", 62501)) {
   //   RuntimeError::Throw("Couldn't establish connection to the game server... Are you connected? If so, the game
   //   server "
@@ -49,11 +53,18 @@ App::App() {
 }
 
 bool App::Run() {
+  uint64_t start_tick = SDL_GetTicksNS();
+  uint64_t end_tick = SDL_GetTicksNS();
+
   while (m_window->IsOpen()) {
     if (RuntimeError::HasAnError()) {
       // The main function
       return false;
     }
+
+    start_tick = SDL_GetTicksNS();
+    float tick_difference = start_tick - end_tick;
+    end_tick = start_tick;
 
     ImGui_ImplVulkan_NewFrame();
     ImGui_ImplSDL3_NewFrame();
@@ -61,19 +72,83 @@ bool App::Run() {
 
     // ImGui::ShowDemoWindow();
 
+    // ImPlot::ShowDemoWindow();
+
+    if (ImGui::Begin("Render Statistics")) {
+      float frame_time = tick_difference / 1e9f;
+      ImGui::Text("Frame Time: %fms", frame_time);
+
+      float fps = 1.f / frame_time;
+      ImGui::Text("FPS: %f", fps);
+
+      static std::vector<float> fpses;
+      fpses.push_back(fps);
+
+      if (ImPlot::BeginPlot("Frame Time Last 60 Seconds")) {
+        ImPlot::SetupAxes("Time", "FPS");
+
+        if (fpses.size() > 60 * 144) {
+          ImPlot::SetupAxesLimits(fpses.size() - 60 * 144 + 10, fpses.size() + 10, 0, 200, ImPlotCond_Once);
+        } else {
+          ImPlot::SetupAxesLimits(0, 60 * 144, 0, 200, ImPlotCond_Once);
+        }
+
+        std::cout << fpses.size() << std::endl;
+
+        ImPlot::PushStyleVar(ImPlotStyleVar_FillAlpha, 0.25f);
+        ImPlot::PlotLine("FPS", fpses.data(), fpses.size());
+        ImPlot::PopStyleVar();
+        ImPlot::EndPlot();
+      }
+
+      // if (fpses.size() > 60 * 144) {
+      //   fpses.erase(fpses.begin());
+      // }
+
+      ImGui::End();
+    }
+
     if (ImGui::Begin("Background Settings")) {
       auto &selected = m_renderer->GetCurrentEffect();
       static int current = 0;
 
+      ImGui::TextWrapped(
+          "This window is merely for the background settings, which is most of the time just black. But all of "
+          "these other backgrounds are product of compute shaders. You can either use the Effect Index slider "
+          "or select the current effect from available effects drop-down menu.");
+
+      static bool flag = true;
+      // TODO: make this actually work
+      ImGui::Checkbox("Enabled", &flag);
+
+      ImGui::NewLine();
+      ImGui::NewLine();
+
       ImGui::Text("Current Effect: %s", selected.name.data());
       ImGui::SliderInt("Effect Index", &current, 0, 1);
+      if (ImGui::BeginCombo("Effect", selected.name.data())) {
+        bool is_selected = selected.name == "Gradient";
+        if (ImGui::Selectable("Gradient", is_selected)) {
+          m_renderer->SetCurrentEffect(0);
+        }
+
+        is_selected = selected.name == "Sky";
+        if (ImGui::Selectable("Sky", is_selected)) {
+          m_renderer->SetCurrentEffect(1);
+          if (is_selected) {
+            ImGui::SetItemDefaultFocus();
+          }
+        }
+
+        ImGui::EndCombo();
+      }
 
       ImGui::InputFloat4("push constant data[0]", selected.pc.data[0].v[0]);
       ImGui::InputFloat4("push constant data[1]", selected.pc.data[1].v[0]);
       ImGui::InputFloat4("push constant data[2]", selected.pc.data[2].v[0]);
       ImGui::InputFloat4("push constant data[3]", selected.pc.data[3].v[0]);
 
-      m_renderer->SetCurrentEffect(current);
+      // m_renderer->SetCurrentEffect(current);
     }
     ImGui::End();
 
