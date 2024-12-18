@@ -11,8 +11,10 @@
 
 #include "descriptor.hpp"
 #include "image.hpp"
+#include "imgui.hpp"
 #include "math/vec.hpp"
 #include "platform/window.hpp"
+#include "swapchain.hpp"
 
 namespace craft::vk {
 struct InstanceExtension {
@@ -67,10 +69,8 @@ private:
   void InitDescriptors();
   void InitPipelines();
   void InitBackgroundPipelines();
-  void InitImGui();
 
   void DrawBackground(VkCommandBuffer cmd);
-  void DrawGUI(VkCommandBuffer cmd, VkImageView view);
 
 private:
   std::shared_ptr<Window> m_window;
@@ -83,10 +83,7 @@ private:
   VkQueue m_queue;
 
   VkSurfaceKHR m_surface;
-  VkSwapchainKHR m_swapchain;
-
-  std::vector<VkImage> m_swapchain_images;
-  std::vector<VkImageView> m_swapchain_image_views;
+  std::shared_ptr<Swapchain> m_swapchain;
 
   uint32_t m_frame_number = 0;
   std::array<FrameData, kMaxFramesInFlight> m_frames;
@@ -106,11 +103,11 @@ private:
 
   VkPipelineCache m_pipeline_cache;
 
-  // ImGui
-  VkDescriptorPool m_imgui_pool;
-
   // Custom backgrounds ;)
   int m_current_bg_effect = 0;
   std::vector<ComputeEffect> m_bg_effects;
+
+  // ImGui (temp)
+  std::shared_ptr<ImGui> m_imgui;
 };
 } // namespace craft::vk

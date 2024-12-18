@@ -25,6 +25,7 @@ enum ErrorFlags : uint32_t {
   EF_DumpStacktrace = 1 << 1,
   // Doesn't set error flag
   EF_Passthrough = 1 << 2,
+  EF_AppendWSAErrors = 1 << 3,
 };
 
 class RuntimeError {

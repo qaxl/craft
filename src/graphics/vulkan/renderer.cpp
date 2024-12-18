@@ -12,9 +12,10 @@
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_vulkan.h>
 
-#include "graphics/vulkan.hpp"
 #include "pipeline.hpp"
+#include "swapchain.hpp"
 #include "util/error.hpp"
+#include "utils.hpp"
 #include "vulkan/vulkan_core.h"
 
 namespace craft::vk {
@@ -288,14 +289,6 @@ static VkPhysicalDevice SelectPhysicalDevice(VkInstance instance, std::vector<co
   return selected_device;
 }
 
-static VkSurfaceKHR CreateSurfaceFromWindow(VkInstance instance, Window *window) {
-  VkSurfaceKHR surface;
-  if (!SDL_Vulkan_CreateSurface(window->GetHandle(), instance, nullptr, &surface)) {
-    RuntimeError::Throw("Couldn't create a Vulkan surface", EF_AppendSDLErrors);
-  }
-  return surface;
-}
-
 static VkDevice CreateDevice(VkPhysicalDevice device, std::vector<const char *> &&exts) {
   float priorities[] = {0.5f};
   VkDeviceQueueCreateInfo queue_info{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
@@ -335,34 +328,6 @@ static VkDevice CreateDevice(VkPhysicalDevice device, std::vector<const char *> 
   return result;
 }
 
-static VkSwapchainKHR CreateSwapchain(VkPhysicalDevice physical_device, VkDevice device, VkSurfaceKHR surface,
-                                      VkExtent2D extent) {
-  VkSwapchainKHR swapchain;
-  VkSurfaceCapabilitiesKHR caps;
-  VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, surface, &caps));
-
-  VkSwapchainCreateInfoKHR create_info{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
-  create_info.surface = surface;
-  // TODO: select best mode for our purposes (FIFO_KHR), but it's not available on all GPUs; Hence we need to test this
-  // too while selecting the best suited GPU.
-  create_info.presentMode = VK_PRESENT_MODE_FIFO_KHR;
-  create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-  create_info.imageFormat = VK_FORMAT_B8G8R8A8_UNORM;
-  create_info.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
-  create_info.imageExtent = extent;
-  create_info.minImageCount = 3;
-  create_info.imageArrayLayers = 1;
-  create_info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-  create_info.preTransform = caps.currentTransform;
-  // TODO: revisit
-  create_info.clipped = VK_TRUE;
-  create_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-
-  VK_CHECK(vkCreateSwapchainKHR(device, &create_info, nullptr, &swapchain));
-
-  return swapchain;
-}
-
 Renderer::Renderer(std::shared_ptr<Window> window) : m_window{window} {
   std::vector<const char *> enabled_exts;
 
@@ -382,13 +347,18 @@ Renderer::Renderer(std::shared_ptr<Window> window) : m_window{window} {
   allocator_info.instance = m_instance;
   allocator_info.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
   allocator_info.pVulkanFunctions = &funcs;
+
   vmaCreateAllocator(&allocator_info, &m_allocator);
 
   auto [width, height] = window->GetSize();
   VkExtent2D extent{width, height};
 
-  m_surface = CreateSurfaceFromWindow(m_instance, window.get());
-  m_swapchain = CreateSwapchain(m_physical_device, m_device, m_surface, extent);
+  m_surface = m_window->CreateSurface(m_instance);
+
+  VkSurfaceCapabilitiesKHR caps;
+  vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_physical_device, m_surface, &caps);
+
+  m_swapchain = std::make_shared<Swapchain>(m_device, m_surface, extent, caps.currentTransform);
 
   // TODO: MOVE OUT OF THIS FUNCTION
   VkExtent3D draw_image_extent{extent.width, extent.height, 1};
@@ -425,29 +395,12 @@ Renderer::Renderer(std::shared_ptr<Window> window) : m_window{window} {
   VK_CHECK(vkCreateImageView(m_device, &view_info, nullptr, &m_draw_image.view));
   // END OF MOVE OUT OF THIS FUNCTION.
 
-  m_swapchain_images = GetProperties<VkImage>(vkGetSwapchainImagesKHR, m_device, m_swapchain);
-  m_swapchain_image_views.resize(m_swapchain_images.size());
-
-  for (auto [i, image_view] : std::views::enumerate(m_swapchain_image_views)) {
-    VkImageViewCreateInfo create_info{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-    create_info.image = m_swapchain_images[i];
-    create_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    create_info.format = VK_FORMAT_B8G8R8A8_UNORM;
-    create_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    create_info.subresourceRange.baseMipLevel = 0;
-    create_info.subresourceRange.levelCount = 1;
-    create_info.subresourceRange.baseArrayLayer = 0;
-    create_info.subresourceRange.layerCount = 1;
-
-    VK_CHECK(vkCreateImageView(m_device, &create_info, nullptr, &image_view));
-  }
-
   InitCommands();
   InitSyncStructures();
   InitDescriptors();
   InitPipelines();
 
-  InitImGui();
+  m_imgui = std::make_shared<ImGui>(m_instance, m_physical_device, m_device, m_window, m_queue, 0);
 }
 
 Renderer::~Renderer() {
@@ -455,12 +408,8 @@ Renderer::~Renderer() {
   vkDeviceWaitIdle(m_device);
   std::cout << "Destroy..." << std::endl;
 
-  // ImGui being retarded again?
-  ImGui_ImplSDL3_Shutdown();
-  ImGui_ImplVulkan_Shutdown();
-  vkDestroyDescriptorPool(m_device, m_imgui_pool, nullptr);
-
-  ImGui::DestroyContext();
+  // Manually kill all other structures before...
+  m_imgui = nullptr;
 
   vkDestroyPipelineLayout(m_device, m_gradient_pipeline_layout, nullptr);
   for (auto &bg_effect : m_bg_effects) {
@@ -484,11 +433,7 @@ Renderer::~Renderer() {
     vkDestroyCommandPool(m_device, frame.command_pool, nullptr);
   }
 
-  for (auto image_view : m_swapchain_image_views) {
-    vkDestroyImageView(m_device, image_view, nullptr);
-  }
-
-  vkDestroySwapchainKHR(m_device, m_swapchain, nullptr);
+  m_swapchain = nullptr;
   vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
   vkDestroyDevice(m_device, nullptr);
 
@@ -598,9 +543,7 @@ void Renderer::Draw() {
   VK_CHECK(vkWaitForFences(m_device, 1, &frame.fe_render, true, 1 * 1000 * 1000 * 1000));
   VK_CHECK(vkResetFences(m_device, 1, &frame.fe_render));
 
-  uint32_t swapchain_image_index;
-  VK_CHECK(vkAcquireNextImageKHR(m_device, m_swapchain, 1 * 1000 * 1000 * 1000, frame.sp_swapchain, nullptr,
-                                 &swapchain_image_index));
+  auto [image, view] = m_swapchain->AcquireNextImage(frame.sp_swapchain);
 
   VkCommandBuffer cmd = frame.command_buffer;
   VK_CHECK(vkResetCommandBuffer(cmd, 0));
@@ -613,49 +556,16 @@ void Renderer::Draw() {
 
   VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
 
-  // Draw straight to the swapchain image.
-  if (false) {
-    TransitionImage(cmd, m_swapchain_images[swapchain_image_index], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
-
-    VkClearColorValue clearValue;
-    float flash = std::abs(std::sin(m_frame_number / 120.f));
-    float flash2 = std::abs(std::cos(m_frame_number / 240.f));
-    float flash3 = std::abs(std::tan(m_frame_number / 120.f));
-    clearValue = {{flash2, flash3, flash, 1.0f}};
-
-    VkImageSubresourceRange clearRange = ImageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
-
-    vkCmdClearColorImage(cmd, m_swapchain_images[swapchain_image_index], VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1,
-                         &clearRange);
-
-    TransitionImage(cmd, m_swapchain_images[swapchain_image_index], VK_IMAGE_LAYOUT_GENERAL,
-                    VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
-  }
-
   TransitionImage(cmd, m_draw_image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
   DrawBackground(cmd);
   TransitionImage(cmd, m_draw_image.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-  TransitionImage(cmd, m_swapchain_images[swapchain_image_index], VK_IMAGE_LAYOUT_UNDEFINED,
-                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+  TransitionImage(cmd, image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
-  /*
-        vkutil::copy_image_to_image(cmd, _drawImage.image, _swapchainImages[swapchainImageIndex], _drawExtent,
-_swapchainExtent);
+  CloneImage(cmd, m_draw_image.image, image, m_draw_extent, m_draw_extent);
+  TransitionImage(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
-// set swapchain image layout to Attachment Optimal so we can draw it
-vkutil::transition_image(cmd, _swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-
-//draw imgui into the swapchain image
-draw_imgui(cmd,  _swapchainImageViews[swapchainImageIndex]);*/
-
-  CloneImage(cmd, m_draw_image.image, m_swapchain_images[swapchain_image_index], m_draw_extent, m_draw_extent);
-  TransitionImage(cmd, m_swapchain_images[swapchain_image_index], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                  VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-
-  DrawGUI(cmd, m_swapchain_image_views[swapchain_image_index]);
-  TransitionImage(cmd, m_swapchain_images[swapchain_image_index], VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                  VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+  m_imgui->Draw(cmd, view);
+  TransitionImage(cmd, image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
   VK_CHECK(vkEndCommandBuffer(cmd));
 
@@ -670,14 +580,22 @@ draw_imgui(cmd,  _swapchainImageViews[swapchainImageIndex]);*/
 
   VkPresentInfoKHR present_info{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
   present_info.swapchainCount = 1;
-  present_info.pSwapchains = &m_swapchain;
+  present_info.pSwapchains = m_swapchain->GetHandlePtr();
 
   present_info.waitSemaphoreCount = 1;
   present_info.pWaitSemaphores = &frame.sp_render;
 
-  present_info.pImageIndices = &swapchain_image_index;
+  uint32_t current_index = m_swapchain->GetCurrentImageIndex();
+  present_info.pImageIndices = &current_index;
 
-  VK_CHECK(vkQueuePresentKHR(m_queue, &present_info));
+  VkResult queue_present = vkQueuePresentKHR(m_queue, &present_info);
+  if (queue_present != VK_SUCCESS) {
+    if (queue_present == VK_SUBOPTIMAL_KHR) {
+      // TODO: abstract swapchain
+    } else {
+      VK_CHECK(queue_present);
+    }
+  }
 }
 
 void Renderer::DrawBackground(VkCommandBuffer cmd) {
@@ -862,78 +780,4 @@ void Renderer::SubmitNow(std::function<void(VkCommandBuffer)> f) {
   VK_CHECK(vkQueueSubmit2(m_queue, 1, &submit, imm->fence));
   VK_CHECK(vkWaitForFences(m_device, 1, &imm->fence, VK_TRUE, 1000'000'000));
 }
-
-static VkRenderingAttachmentInfo AttachmentInfo(VkImageView view, VkClearValue *clear,
-                                                VkImageLayout layout /*= VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL*/) {
-  VkRenderingAttachmentInfo color_attachment{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-  color_attachment.imageView = view;
-  color_attachment.imageLayout = layout;
-  color_attachment.loadOp = clear ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
-  color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-
-  if (clear) {
-    color_attachment.clearValue = *clear;
-  }
-
-  return color_attachment;
-}
-
-void Renderer::InitImGui() {
-  VkDescriptorPoolSize pool_sizes[] = {
-      {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1},
-  };
-
-  VkDescriptorPoolCreateInfo pool_info{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-  pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-  pool_info.maxSets = 1;
-  pool_info.poolSizeCount = sizeof(pool_sizes) / sizeof(*pool_sizes);
-  pool_info.pPoolSizes = pool_sizes;
-
-  VK_CHECK(vkCreateDescriptorPool(m_device, &pool_info, nullptr, &m_imgui_pool));
-
-  ImGui::CreateContext();
-  ImGuiIO &io = ImGui::GetIO();
-
-  ImGui_ImplSDL3_InitForVulkan(m_window->GetHandle());
-
-  VkFormat format = VK_FORMAT_B8G8R8A8_UNORM;
-  ImGui_ImplVulkan_InitInfo init_info{
-      .Instance = m_instance,
-      .PhysicalDevice = m_physical_device,
-      .Device = m_device,
-      .Queue = m_queue,
-      .DescriptorPool = m_imgui_pool,
-      .MinImageCount = kMinFramesInFlight,
-      .ImageCount = kMaxFramesInFlight,
-      .MSAASamples = VK_SAMPLE_COUNT_1_BIT,
-      .UseDynamicRendering = true,
-      .PipelineRenderingCreateInfo = {VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO, nullptr, 0, 1, &format},
-      .CheckVkResultFn = [](VkResult res) { CheckResult(res); },
-  };
-
-  ImGui_ImplVulkan_LoadFunctions(
-      [](const char *function_name, void *u) {
-        return vkGetInstanceProcAddr(static_cast<Renderer *>(u)->m_instance, function_name);
-      },
-      this);
-
-  ImGui_ImplVulkan_Init(&init_info);
-  ImGui_ImplVulkan_CreateFontsTexture();
-}
-
-void Renderer::DrawGUI(VkCommandBuffer cmd, VkImageView view) {
-  VkRenderingAttachmentInfo color_attachment = AttachmentInfo(view, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-  VkRenderingInfo render_info{VK_STRUCTURE_TYPE_RENDERING_INFO};
-  render_info.colorAttachmentCount = 1;
-  render_info.pColorAttachments = &color_attachment;
-  render_info.renderArea.extent = m_draw_extent;
-  render_info.layerCount = 1;
-
-  vkCmdBeginRendering(cmd, &render_info);
-
-  ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
-
-  vkCmdEndRendering(cmd);
-}
-
 } // namespace craft::vk

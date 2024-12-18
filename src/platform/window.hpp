@@ -1,7 +1,12 @@
 #pragma once
 
-#include "SDL3/SDL_video.h"
 #include <utility>
+
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_vulkan.h>
+#include <volk.h>
+
+#include "util/error.hpp"
 
 struct SDL_Window;
 
@@ -21,16 +26,24 @@ public:
   }
 
   void PollEvents();
-  bool IsOpen() { return m_window_is_open; }
+  bool IsOpen() const { return m_window_is_open; }
 
   SDL_Window *GetHandle() { return m_window; }
-  void GetSize(int &width, int &height) { SDL_GetWindowSizeInPixels(m_window, &width, &height); }
+  void GetSize(int &width, int &height) const { SDL_GetWindowSizeInPixels(m_window, &width, &height); }
 
-  std::pair<uint32_t, uint32_t> GetSize() {
+  std::pair<uint32_t, uint32_t> GetSize() const {
     int width, height;
     GetSize(width, height);
     // this converts them to uint, "safely"
     return std::make_pair(width, height);
+  }
+
+  VkSurfaceKHR CreateSurface(VkInstance instance) {
+    VkSurfaceKHR surface;
+    if (!SDL_Vulkan_CreateSurface(m_window, instance, nullptr, &surface)) {
+      RuntimeError::Throw("Couldn't create a Vulkan surface.");
+    }
+    return surface;
   }
 
 private:

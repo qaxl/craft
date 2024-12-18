@@ -7,7 +7,7 @@
 #include <string_view>
 #include <vector>
 
-#include "graphics/vulkan.hpp"
+#include "utils.hpp"
 
 namespace craft::vk {
 inline std::optional<VkShaderModule> LoadShaderModule(std::string_view path, VkDevice device) {

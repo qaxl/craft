@@ -10,14 +10,9 @@ int main(int argc, char **argv) {
   // This looks absolutely terrifying, but gladly I won't have to touch it
   // again.
   try {
-    auto app = craft::App::Init();
-    if (!app) {
-      std::cout << "Couldn't initialize the program, due to an error: " << *craft::RuntimeError::GetErrorString()
-                << std::endl;
-      return EXIT_FAILURE;
-    }
+    craft::App app;
 
-    if (!app->Run()) {
+    if (!app.Run()) {
       std::cout << "Application quit because of an error: " << *craft::RuntimeError::GetErrorString() << std::endl;
       return EXIT_FAILURE;
     }

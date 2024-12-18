@@ -1,6 +1,6 @@
 #pragma once
 
-#include "graphics/vulkan.hpp"
+#include "utils.hpp"
 
 #include <span>
 #include <vector>
