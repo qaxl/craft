@@ -22,3 +22,5 @@ add_library(imgui
 target_link_libraries(imgui SDL3::SDL3 volk)
 target_compile_definitions(imgui PUBLIC IMGUI_IMPL_VULKAN_NO_PROTOTYPES)
 target_include_directories(imgui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/imgui ${CMAKE_CURRENT_SOURCE_DIR}/imgui/backends ${CMAKE_CURRENT_SOURCE_DIR}/implot)
+
+add_subdirectory(steamworks)

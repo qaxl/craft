@@ -1,9 +1,11 @@
 #include "window.hpp"
-#include "util/error.hpp"
+
+#include <thread>
 
 #include <SDL3/SDL.h>
 #include <imgui_impl_sdl3.h>
-#include <thread>
+
+#include "util/error.hpp"
 
 namespace craft {
 Window::Window(int width, int height, const char *title) {

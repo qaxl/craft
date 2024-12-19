@@ -1,10 +1,16 @@
 #include "app.hpp"
-#include "util/error.hpp"
 
 #include <cstdlib>
 #include <exception>
 #include <iostream>
 #include <new>
+
+#include "util/error.hpp"
+
+#ifndef I_DONT_CARE_IF_SOMETHING_GOES_WRONG_JUST_LET_ME
+static_assert(sizeof(void *) == 8, "32-bit architecture IS NOT supported. You can still try building this project, but "
+                                   "no support will be offered in case of something goes wrong.");
+#endif
 
 int main(int argc, char **argv) {
   // This looks absolutely terrifying, but gladly I won't have to touch it

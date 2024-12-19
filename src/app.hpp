@@ -1,10 +1,10 @@
 #pragma once
 
+#include <memory>
+
 #include "graphics/vulkan/renderer.hpp"
 #include "graphics/widgets/widget.hpp"
 #include "platform/window.hpp"
-
-#include <memory>
 
 namespace craft {
 

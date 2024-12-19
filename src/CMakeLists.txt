@@ -14,3 +14,7 @@ add_executable(craft
 
 target_include_directories(craft PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(craft PRIVATE SDL3::SDL3 GPUOpen::VulkanMemoryAllocator volk glad imgui ws2_32)
+
+if (BUILD_WITH_STEAMSDK)
+  target_link_libraries(craft PRIVATE steamworks)
+endif()

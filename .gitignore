@@ -2,3 +2,6 @@ build/
 .cache/
 *.json
 .vs/
+
+# proprietary
+deps/steamworks/sdk

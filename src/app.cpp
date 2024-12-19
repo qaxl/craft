@@ -1,25 +1,35 @@
 #include "app.hpp"
+
+#include <iostream>
+
+#include <SDL3/SDL.h>
+#include <imgui_impl_sdl3.h>
+#include <imgui_impl_vulkan.h>
+#include <steam/isteamnetworking.h>
+#include <steam/steam_api.h>
+#include <volk.h>
+
 #include "graphics/vulkan/renderer.hpp"
 #include "graphics/widgets/background_settings_widget.hpp"
 #include "graphics/widgets/render_time_widget.hpp"
 #include "graphics/widgets/util_widget.hpp"
 #include "graphics/widgets/widget.hpp"
+#include "steam/isteamapps.h"
+#include "steam/isteamfriends.h"
 #include "util/error.hpp"
 
-#include <imgui.h>
-#include <imgui_impl_sdl3.h>
-#include <imgui_impl_vulkan.h>
-#include <implot.h>
-
-#include <SDL3/SDL.h>
-#include <volk.h>
-
-#include <iostream>
-
 namespace craft {
-App::~App() { SDL_Quit(); }
+App::~App() {
+  SDL_Quit();
+  SteamAPI_Shutdown();
+}
 
 App::App() {
+  if (!SteamAPI_Init()) {
+    // TODO: not make this forced.
+    RuntimeError::Throw("Steamworks API couldn't initialize.");
+  }
+
   if (SDL_Init(SDL_INIT_VIDEO) == false) {
     RuntimeError::Throw("SDL Initialization Failure", EF_AppendSDLErrors);
   }
@@ -47,6 +57,8 @@ App::App() {
   m_widget_manager->AddWidget(std::make_unique<UtilWidget>());
   m_widget_manager->AddWidget(std::make_unique<RenderTimingsWidget>());
   m_widget_manager->AddWidget(std::make_unique<BackgroundSettingsWidget>(m_renderer));
+
+  std::cout << "Hi, " << SteamFriends()->GetPersonaName() << "!" << std::endl;
 }
 
 bool App::Run() {

@@ -1,8 +1,10 @@
 #include "error.hpp"
 
-#include <SDL3/SDL.h>
 #include <stacktrace>
+
 #include <winsock2.h>
+
+#include <SDL3/SDL.h>
 
 namespace craft {
 static const char *GetWSAErrorString(int error_code) {
@@ -157,6 +159,9 @@ void RuntimeError::Throw(std::string_view description, ErrorFlags flags) {
   SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Craft Engine: A Runtime Error Has Occurred", s_description.c_str(),
                            nullptr);
 
+  // Yes this is simply the same as we could throw this error ourselves...
+  // But I instead chose this way so that in the future we *could* just terminate the program instantly if we want to
+  // disable exceptions.
   throw std::runtime_error(s_description);
 }
 

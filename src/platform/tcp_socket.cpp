@@ -1,11 +1,13 @@
 #include "tcp_socket.hpp"
-#include "util/error.hpp"
 
-#include <WS2tcpip.h>
 #include <cstdlib>
 #include <string>
+
+#include <WS2tcpip.h>
 #include <winsock2.h>
 #include <ws2ipdef.h>
+
+#include "util/error.hpp"
 
 namespace craft {
 TcpSocket::TcpSocket() {
