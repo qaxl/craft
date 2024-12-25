@@ -1,5 +1,6 @@
 #pragma once
 
+#include <format>
 #include <source_location>
 #include <string_view>
 #include <vector>
@@ -210,4 +211,36 @@ AttachmentInfo(VkImageView view, VkClearValue *clear,
 
   return color_attachment;
 }
+
+static constexpr VkSemaphoreSubmitInfo SemaphoreSubmitInfo(VkPipelineStageFlags2 stage_mask, VkSemaphore semaphore) {
+  return VkSemaphoreSubmitInfo{
+      .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+      .semaphore = semaphore,
+      .value = 1,
+      .stageMask = stage_mask,
+  };
+}
+
+static constexpr VkCommandBufferSubmitInfo CommandBufferSubmitInfo(VkCommandBuffer cmd) {
+  return VkCommandBufferSubmitInfo{
+      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
+      .commandBuffer = cmd,
+  };
+}
+
+static constexpr VkSubmitInfo2 SubmitInfo(VkCommandBufferSubmitInfo *cmd, VkSemaphoreSubmitInfo *signal_semaphore,
+                                          VkSemaphoreSubmitInfo *wait_semaphore) {
+  VkSubmitInfo2 info{VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+  info.waitSemaphoreInfoCount = wait_semaphore != nullptr;
+  info.pWaitSemaphoreInfos = wait_semaphore;
+
+  info.signalSemaphoreInfoCount = signal_semaphore != nullptr;
+  info.pSignalSemaphoreInfos = signal_semaphore;
+
+  info.commandBufferInfoCount = 1;
+  info.pCommandBufferInfos = cmd;
+
+  return info;
+}
+
 } // namespace craft::vk

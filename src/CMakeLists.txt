@@ -2,6 +2,7 @@ add_executable(craft
   main.cpp
   app.cpp
   
+  graphics/vulkan/device.cpp
   graphics/vulkan/imgui.cpp
   graphics/vulkan/renderer.cpp
   graphics/vulkan/swapchain.cpp

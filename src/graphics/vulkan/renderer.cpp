@@ -12,6 +12,7 @@
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_vulkan.h>
 
+#include "device.hpp"
 #include "pipeline.hpp"
 #include "swapchain.hpp"
 #include "util/error.hpp"
@@ -199,151 +200,25 @@ static VkInstance CreateInstance(std::shared_ptr<Window> window, std::initialize
   return instance;
 }
 
-static VkPhysicalDevice SelectPhysicalDevice(VkInstance instance, std::vector<const char *> &enabled_exts) {
-  auto devices = GetProperties<VkPhysicalDevice>(vkEnumeratePhysicalDevices, instance);
-
-  // We're targeting Vulkan 1.3, but ImGui is retarded and requires this extension to be enabled anyway.
-  std::array<const char *, 2> req_exts{VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME, VK_KHR_SWAPCHAIN_EXTENSION_NAME};
-  std::array<const char *, 0> opt_exts{};
-
-  VkPhysicalDevice selected_device = VK_NULL_HANDLE;
-  for (auto device : devices) {
-    VkPhysicalDeviceProperties props;
-    VkPhysicalDeviceFeatures feats;
-    vkGetPhysicalDeviceProperties(device, &props);
-    vkGetPhysicalDeviceFeatures(device, &feats);
-
-    VkPhysicalDeviceVulkan13Features feats13{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
-    VkPhysicalDeviceVulkan12Features feats12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, &feats13};
-    VkPhysicalDeviceFeatures2 feats2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &feats12};
-    vkGetPhysicalDeviceFeatures2(device, &feats2);
-
-    // TODO: make a static function in device to check features too?
-    if (!feats13.dynamicRendering && !feats13.synchronization2) {
-      RuntimeError::Throw("This Vulkan renderer won't work without dynamic rendering!");
-    }
-
-    std::cout << "Queried a physical device: " << props.deviceName << std::endl;
-
-    auto exts = GetProperties<VkExtensionProperties>(vkEnumerateDeviceExtensionProperties, device, nullptr);
-    auto queue_families = GetProperties<VkQueueFamilyProperties>(vkGetPhysicalDeviceQueueFamilyProperties, device);
-
-    for (const auto &ext : exts) {
-      std::cout << "Found a device-level extension: " << ext.extensionName << std::endl;
-
-      if (auto it =
-              std::find_if(req_exts.begin(), req_exts.end(),
-                           [&](std::string_view wanted) { return strcmp(ext.extensionName, wanted.data()) == 0; });
-          it != req_exts.end()) {
-        std::cout << "Enabling required device-level extension: " << ext.extensionName << std::endl;
-        enabled_exts.push_back(*it);
-      } else if (auto it = std::find_if(
-                     opt_exts.begin(), opt_exts.end(),
-                     [&](std::string_view wanted) { return strcmp(ext.extensionName, wanted.data()) == 0; });
-                 it != opt_exts.end()) {
-        std::cout << "Enabling optional device-level extension: " << ext.extensionName << std::endl;
-        enabled_exts.push_back(*it);
-      }
-    }
-
-    std::sort(enabled_exts.begin(), enabled_exts.end());
-    // std::sort(req_exts.begin(), req_exts.end());
-    if (!std::includes(enabled_exts.begin(), enabled_exts.end(), req_exts.begin(), req_exts.end())) {
-      std::cout << "Can't use device " << props.deviceName << " because it doesn't support all necessary extensions."
-                << std::endl;
-      enabled_exts.clear();
-      continue;
-    }
-
-    selected_device = device;
-
-    for (const auto &[i, queue_family] : std::views::enumerate(queue_families)) {
-      std::string capabilities = "";
-
-      if (queue_family.queueFlags & VK_QUEUE_GRAPHICS_BIT)
-        capabilities += "GRAPHICS ";
-      if (queue_family.queueFlags & VK_QUEUE_COMPUTE_BIT)
-        capabilities += "COMPUTE ";
-      if (queue_family.queueFlags & VK_QUEUE_TRANSFER_BIT)
-        capabilities += "TRANSFER ";
-      if (queue_family.queueFlags & VK_QUEUE_SPARSE_BINDING_BIT)
-        capabilities += "SPARSE_BINDING ";
-
-      // TODO: where the fuck this belongs?
-      if (SDL_Vulkan_GetPresentationSupport(instance, device, i))
-        capabilities += "PRESENT ";
-
-      std::cout << "Found a queue family (ID=" << i << "): supports " << queue_family.queueCount
-                << " queues, supporting features: " << capabilities << std::endl;
-      ;
-    }
-
-    if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
-      // TODO: allow override
-      std::cout << "Selecting GPU as physical device, since it is an discrete graphics card and passed prior checks."
-                << std::endl;
-      break;
-    }
-  }
-
-  return selected_device;
-}
-
-static VkDevice CreateDevice(VkPhysicalDevice device, std::vector<const char *> &&exts) {
-  float priorities[] = {0.5f};
-  VkDeviceQueueCreateInfo queue_info{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
-  queue_info.queueCount = 1;
-  // the 0th queue supports all operations,
-  // TODO: add specialized transfer queue (with it's own queue family index), and specialized compute queue?
-  queue_info.queueFamilyIndex = 0;
-  queue_info.pQueuePriorities = priorities;
-
-  VkPhysicalDeviceVulkan12Features features12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
-  VkPhysicalDeviceVulkan13Features features13{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES, &features12};
-  VkPhysicalDeviceFeatures2 features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
-  features.pNext = &features13;
-
-  features13.dynamicRendering = true;
-  features13.synchronization2 = true;
-
-  features12.bufferDeviceAddress = true;
-
-  VkDeviceCreateInfo create_info{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
-  create_info.pNext = &features;
-  create_info.pQueueCreateInfos = &queue_info;
-  create_info.queueCreateInfoCount = 1;
-
-  create_info.ppEnabledExtensionNames = exts.data();
-  create_info.enabledExtensionCount = exts.size();
-
-  std::cout << exts.size() << ": ";
-  for (auto ext : exts)
-    std::cout << ext << ", ";
-  std::cout << std::endl;
-
-  VkDevice result;
-  VK_CHECK(vkCreateDevice(device, &create_info, nullptr, &result));
-  volkLoadDevice(result);
-
-  return result;
-}
-
 Renderer::Renderer(std::shared_ptr<Window> window) : m_window{window} {
   std::vector<const char *> enabled_exts;
 
   m_instance = CreateInstance(window, {{VK_EXT_DEBUG_UTILS_EXTENSION_NAME, false}}, {"VK_LAYER_KHRONOS_validation"},
                               "craft app", m_messenger);
 
-  m_physical_device = SelectPhysicalDevice(m_instance, enabled_exts);
-  m_device = CreateDevice(m_physical_device, std::move(enabled_exts));
-  // TODO: support multiple queues and queue families
-  vkGetDeviceQueue(m_device, 0, 0, &m_queue);
+  DeviceFeatures features{};
+  features.vk_1_3_features.dynamicRendering = true;
+  features.vk_1_3_features.synchronization2 = true;
+  // ImGui requirement
+  features.vk_1_2_features.bufferDeviceAddress = true;
+
+  m_device = Device{m_instance, {DeviceExtension{VK_KHR_SWAPCHAIN_EXTENSION_NAME}}, &features};
 
   VmaVulkanFunctions funcs{.vkGetInstanceProcAddr = vkGetInstanceProcAddr, .vkGetDeviceProcAddr = vkGetDeviceProcAddr};
 
   VmaAllocatorCreateInfo allocator_info{};
-  allocator_info.physicalDevice = m_physical_device;
-  allocator_info.device = m_device;
+  allocator_info.physicalDevice = m_device.GetPhysicalDevice();
+  allocator_info.device = m_device.GetDevice();
   allocator_info.instance = m_instance;
   allocator_info.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
   allocator_info.pVulkanFunctions = &funcs;
@@ -356,9 +231,9 @@ Renderer::Renderer(std::shared_ptr<Window> window) : m_window{window} {
   m_surface = m_window->CreateSurface(m_instance);
 
   VkSurfaceCapabilitiesKHR caps;
-  vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_physical_device, m_surface, &caps);
+  vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_device.GetPhysicalDevice(), m_surface, &caps);
 
-  m_swapchain = std::make_shared<Swapchain>(m_device, m_surface, extent, caps.currentTransform);
+  m_swapchain = std::make_shared<Swapchain>(m_device.GetDevice(), m_surface, extent, caps.currentTransform);
 
   // TODO: MOVE OUT OF THIS FUNCTION
   VkExtent3D draw_image_extent{extent.width, extent.height, 1};
@@ -392,7 +267,7 @@ Renderer::Renderer(std::shared_ptr<Window> window) : m_window{window} {
   view_info.subresourceRange.layerCount = 1;
   view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 
-  VK_CHECK(vkCreateImageView(m_device, &view_info, nullptr, &m_draw_image.view));
+  VK_CHECK(vkCreateImageView(m_device.GetDevice(), &view_info, nullptr, &m_draw_image.view));
   // END OF MOVE OUT OF THIS FUNCTION.
 
   InitCommands();
@@ -400,42 +275,45 @@ Renderer::Renderer(std::shared_ptr<Window> window) : m_window{window} {
   InitDescriptors();
   InitPipelines();
 
-  m_imgui = std::make_shared<ImGui>(m_instance, m_physical_device, m_device, m_window, m_queue, 0);
+  std::cout << m_device.GetGraphicsQueue() << std::endl;
+
+  m_imgui = std::make_shared<ImGui>(m_instance, m_device.GetPhysicalDevice(), m_device.GetDevice(), m_window,
+                                    m_device.GetGraphicsQueue(), 0);
 }
 
 Renderer::~Renderer() {
   std::cout << "Wait... ";
-  vkDeviceWaitIdle(m_device);
+  vkDeviceWaitIdle(m_device.GetDevice());
   std::cout << "Destroy..." << std::endl;
 
   // Manually kill all other structures before...
   m_imgui = nullptr;
 
-  vkDestroyPipelineLayout(m_device, m_gradient_pipeline_layout, nullptr);
+  vkDestroyPipelineLayout(m_device.GetDevice(), m_gradient_pipeline_layout, nullptr);
   for (auto &bg_effect : m_bg_effects) {
-    vkDestroyPipeline(m_device, bg_effect.pipeline, nullptr);
+    vkDestroyPipeline(m_device.GetDevice(), bg_effect.pipeline, nullptr);
   }
   // vkDestroyPipeline(m_device, m_gradient_pipeline, nullptr);
 
-  m_descriptor_allocator.DestroyPool(m_device);
-  vkDestroyDescriptorSetLayout(m_device, m_draw_image_descriptor_layout, nullptr);
+  m_descriptor_allocator.DestroyPool(m_device.GetDevice());
+  vkDestroyDescriptorSetLayout(m_device.GetDevice(), m_draw_image_descriptor_layout, nullptr);
 
-  vkDestroyImageView(m_device, m_draw_image.view, nullptr);
+  vkDestroyImageView(m_device.GetDevice(), m_draw_image.view, nullptr);
   vmaDestroyImage(m_allocator, m_draw_image.image, m_draw_image.allocation);
 
   vmaDestroyAllocator(m_allocator);
 
   for (auto &frame : m_frames) {
-    vkDestroyFence(m_device, frame.fe_render, nullptr);
-    vkDestroySemaphore(m_device, frame.sp_render, nullptr);
-    vkDestroySemaphore(m_device, frame.sp_swapchain, nullptr);
+    vkDestroyFence(m_device.GetDevice(), frame.fe_render, nullptr);
+    vkDestroySemaphore(m_device.GetDevice(), frame.sp_render, nullptr);
+    vkDestroySemaphore(m_device.GetDevice(), frame.sp_swapchain, nullptr);
 
-    vkDestroyCommandPool(m_device, frame.command_pool, nullptr);
+    vkDestroyCommandPool(m_device.GetDevice(), frame.command_pool, nullptr);
   }
 
   m_swapchain = nullptr;
   vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
-  vkDestroyDevice(m_device, nullptr);
+  vkDestroyDevice(m_device.GetDevice(), nullptr);
 
 #ifndef NDEBUG
   if (m_messenger) {
@@ -506,42 +384,11 @@ static void CloneImage(VkCommandBuffer cmd, VkImage source, VkImage destination,
   vkCmdBlitImage2(cmd, &blit_info);
 }
 
-static VkSemaphoreSubmitInfo SemaphoreSubmitInfo(VkPipelineStageFlags2 stage_mask, VkSemaphore semaphore) {
-  return VkSemaphoreSubmitInfo{
-      .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
-      .semaphore = semaphore,
-      .value = 1,
-      .stageMask = stage_mask,
-  };
-}
-
-static VkCommandBufferSubmitInfo CommandBufferSubmitInfo(VkCommandBuffer cmd) {
-  return VkCommandBufferSubmitInfo{
-      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
-      .commandBuffer = cmd,
-  };
-}
-
-static VkSubmitInfo2 SubmitInfo(VkCommandBufferSubmitInfo *cmd, VkSemaphoreSubmitInfo *signal_semaphore,
-                                VkSemaphoreSubmitInfo *wait_semaphore) {
-  VkSubmitInfo2 info{VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
-  info.waitSemaphoreInfoCount = wait_semaphore != nullptr;
-  info.pWaitSemaphoreInfos = wait_semaphore;
-
-  info.signalSemaphoreInfoCount = signal_semaphore != nullptr;
-  info.pSignalSemaphoreInfos = signal_semaphore;
-
-  info.commandBufferInfoCount = 1;
-  info.pCommandBufferInfos = cmd;
-
-  return info;
-}
-
 void Renderer::Draw() {
   auto &frame = GetCurrentFrame();
 
-  VK_CHECK(vkWaitForFences(m_device, 1, &frame.fe_render, true, 1 * 1000 * 1000 * 1000));
-  VK_CHECK(vkResetFences(m_device, 1, &frame.fe_render));
+  VK_CHECK(vkWaitForFences(m_device.GetDevice(), 1, &frame.fe_render, true, 1 * 1000 * 1000 * 1000));
+  VK_CHECK(vkResetFences(m_device.GetDevice(), 1, &frame.fe_render));
 
   auto [image, view] = m_swapchain->AcquireNextImage(frame.sp_swapchain);
 
@@ -576,7 +423,7 @@ void Renderer::Draw() {
 
   VkSubmitInfo2 submit = SubmitInfo(&cmd_info, &signal_info, &wait_info);
 
-  VK_CHECK(vkQueueSubmit2(m_queue, 1, &submit, frame.fe_render));
+  VK_CHECK(vkQueueSubmit2(m_device.GetGraphicsQueue(), 1, &submit, frame.fe_render));
 
   VkPresentInfoKHR present_info{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
   present_info.swapchainCount = 1;
@@ -588,7 +435,7 @@ void Renderer::Draw() {
   uint32_t current_index = m_swapchain->GetCurrentImageIndex();
   present_info.pImageIndices = &current_index;
 
-  VkResult queue_present = vkQueuePresentKHR(m_queue, &present_info);
+  VkResult queue_present = vkQueuePresentKHR(m_device.GetGraphicsQueue(), &present_info);
   if (queue_present != VK_SUCCESS) {
     if (queue_present == VK_SUBOPTIMAL_KHR) {
       // TODO: abstract swapchain
@@ -627,14 +474,14 @@ void Renderer::InitCommands() {
   create_info.queueFamilyIndex = 0;
 
   for (size_t i = 0; i < kMaxFramesInFlight; ++i) {
-    VK_CHECK(vkCreateCommandPool(m_device, &create_info, nullptr, &m_frames[i].command_pool));
+    VK_CHECK(vkCreateCommandPool(m_device.GetDevice(), &create_info, nullptr, &m_frames[i].command_pool));
 
     VkCommandBufferAllocateInfo alloc_info{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
     alloc_info.commandPool = m_frames[i].command_pool;
     alloc_info.commandBufferCount = 1;
     alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 
-    VK_CHECK(vkAllocateCommandBuffers(m_device, &alloc_info, &m_frames[i].command_buffer));
+    VK_CHECK(vkAllocateCommandBuffers(m_device.GetDevice(), &alloc_info, &m_frames[i].command_buffer));
   }
 }
 
@@ -643,23 +490,23 @@ void Renderer::InitSyncStructures() {
   VkSemaphoreCreateInfo semaphore_info{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
 
   for (auto &frame : m_frames) {
-    VK_CHECK(vkCreateFence(m_device, &fence_info, nullptr, &frame.fe_render));
+    VK_CHECK(vkCreateFence(m_device.GetDevice(), &fence_info, nullptr, &frame.fe_render));
 
-    VK_CHECK(vkCreateSemaphore(m_device, &semaphore_info, nullptr, &frame.sp_swapchain));
-    VK_CHECK(vkCreateSemaphore(m_device, &semaphore_info, nullptr, &frame.sp_render));
+    VK_CHECK(vkCreateSemaphore(m_device.GetDevice(), &semaphore_info, nullptr, &frame.sp_swapchain));
+    VK_CHECK(vkCreateSemaphore(m_device.GetDevice(), &semaphore_info, nullptr, &frame.sp_render));
   }
 }
 
 void Renderer::InitDescriptors() {
   std::array<DescriptorAllocator::PoolSizeRatio, 1> sizes{
       DescriptorAllocator::PoolSizeRatio{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1}};
-  m_descriptor_allocator.InitPool(m_device, 10, sizes);
+  m_descriptor_allocator.InitPool(m_device.GetDevice(), 10, sizes);
 
   DescriptorLayoutBuilder builder;
   builder.AddBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
-  m_draw_image_descriptor_layout = builder.Build(m_device, VK_SHADER_STAGE_COMPUTE_BIT);
+  m_draw_image_descriptor_layout = builder.Build(m_device.GetDevice(), VK_SHADER_STAGE_COMPUTE_BIT);
 
-  m_draw_image_descriptors = m_descriptor_allocator.Allocate(m_device, m_draw_image_descriptor_layout);
+  m_draw_image_descriptors = m_descriptor_allocator.Allocate(m_device.GetDevice(), m_draw_image_descriptor_layout);
 
   VkDescriptorImageInfo info{};
   info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
@@ -671,7 +518,7 @@ void Renderer::InitDescriptors() {
   draw_image_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
   draw_image_write.pImageInfo = &info;
 
-  vkUpdateDescriptorSets(m_device, 1, &draw_image_write, 0, nullptr);
+  vkUpdateDescriptorSets(m_device.GetDevice(), 1, &draw_image_write, 0, nullptr);
 }
 
 void Renderer::InitPipelines() { InitBackgroundPipelines(); }
@@ -688,10 +535,10 @@ void Renderer::InitBackgroundPipelines() {
   compute_layout.pushConstantRangeCount = 1;
   compute_layout.pPushConstantRanges = &push_constants;
 
-  VK_CHECK(vkCreatePipelineLayout(m_device, &compute_layout, nullptr, &m_gradient_pipeline_layout));
+  VK_CHECK(vkCreatePipelineLayout(m_device.GetDevice(), &compute_layout, nullptr, &m_gradient_pipeline_layout));
 
-  auto gradient_shader = LoadShaderModule("../shaders/gradient.comp.spv", m_device);
-  auto sky_shader = LoadShaderModule("../shaders/sky.comp.spv", m_device);
+  auto gradient_shader = LoadShaderModule("../shaders/gradient.comp.spv", m_device.GetDevice());
+  auto sky_shader = LoadShaderModule("../shaders/sky.comp.spv", m_device.GetDevice());
   if (!gradient_shader || !sky_shader) {
     RuntimeError::Throw("Error occurred while trying to load compute shader.");
   }
@@ -712,12 +559,13 @@ void Renderer::InitBackgroundPipelines() {
   ComputeEffect sky{
       .name = "Sky", .layout = m_gradient_pipeline_layout, .pc = {{Vec<float, 4>{0.1f, 0.2f, 0.4f, 0.97f}}}};
 
-  VK_CHECK(vkCreateComputePipelines(m_device, nullptr, 1, &compute_pipeline_info, nullptr, &gradient.pipeline));
-  vkDestroyShaderModule(m_device, compute_pipeline_info.stage.module, nullptr);
+  VK_CHECK(
+      vkCreateComputePipelines(m_device.GetDevice(), nullptr, 1, &compute_pipeline_info, nullptr, &gradient.pipeline));
+  vkDestroyShaderModule(m_device.GetDevice(), compute_pipeline_info.stage.module, nullptr);
 
   compute_pipeline_info.stage.module = sky_shader.value();
-  VK_CHECK(vkCreateComputePipelines(m_device, nullptr, 1, &compute_pipeline_info, nullptr, &sky.pipeline));
-  vkDestroyShaderModule(m_device, compute_pipeline_info.stage.module, nullptr);
+  VK_CHECK(vkCreateComputePipelines(m_device.GetDevice(), nullptr, 1, &compute_pipeline_info, nullptr, &sky.pipeline));
+  vkDestroyShaderModule(m_device.GetDevice(), compute_pipeline_info.stage.module, nullptr);
 
   m_bg_effects.push_back(gradient);
   m_bg_effects.push_back(sky);
@@ -759,9 +607,9 @@ static std::shared_ptr<ImmSbm_> CreateImmediateSubmissionStructures(VkDevice dev
 
 // TODO: a dedicated submit queue, and perhaps a transfer queue
 void Renderer::SubmitNow(std::function<void(VkCommandBuffer)> f) {
-  static thread_local auto imm = CreateImmediateSubmissionStructures(m_device);
+  static thread_local auto imm = CreateImmediateSubmissionStructures(m_device.GetDevice());
 
-  VK_CHECK(vkResetFences(m_device, 1, &imm->fence));
+  VK_CHECK(vkResetFences(m_device.GetDevice(), 1, &imm->fence));
   VK_CHECK(vkResetCommandBuffer(imm->cmd, 0));
 
   VkCommandBufferBeginInfo cmd_begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
@@ -777,7 +625,7 @@ void Renderer::SubmitNow(std::function<void(VkCommandBuffer)> f) {
   cmd_info.commandBuffer = imm->cmd;
   VkSubmitInfo2 submit = SubmitInfo(&cmd_info, nullptr, nullptr);
 
-  VK_CHECK(vkQueueSubmit2(m_queue, 1, &submit, imm->fence));
-  VK_CHECK(vkWaitForFences(m_device, 1, &imm->fence, VK_TRUE, 1000'000'000));
+  VK_CHECK(vkQueueSubmit2(m_device.GetTransferQueue(), 1, &submit, imm->fence));
+  VK_CHECK(vkWaitForFences(m_device.GetDevice(), 1, &imm->fence, VK_TRUE, 1000'000'000));
 }
 } // namespace craft::vk

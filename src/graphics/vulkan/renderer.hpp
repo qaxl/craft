@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "descriptor.hpp"
+#include "device.hpp"
 #include "image.hpp"
 #include "imgui.hpp"
 #include "math/vec.hpp"
@@ -78,9 +79,7 @@ private:
   VkInstance m_instance;
   VkDebugUtilsMessengerEXT m_messenger;
 
-  VkPhysicalDevice m_physical_device;
-  VkDevice m_device;
-  VkQueue m_queue;
+  Device m_device;
 
   VkSurfaceKHR m_surface;
   std::shared_ptr<Swapchain> m_swapchain;
