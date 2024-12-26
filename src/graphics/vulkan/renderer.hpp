@@ -18,6 +18,15 @@
 #include "swapchain.hpp"
 
 namespace craft::vk {
+struct Instance {
+  VkInstance instance{};
+
+  ~Instance() {
+    if (instance)
+      vkDestroyInstance(instance, nullptr);
+  }
+};
+
 struct InstanceExtension {
   // the extension name to enable
   const char *name;
@@ -55,6 +64,9 @@ public:
   Renderer(std::shared_ptr<Window> window);
   ~Renderer();
 
+  Renderer(const Renderer &) = delete;
+  Renderer(Renderer &&) = delete;
+
   // TODO: configurable?
   FrameData &GetCurrentFrame() { return m_frames[m_frame_number++ % kMaxFramesInFlight]; }
 
@@ -70,19 +82,24 @@ private:
   void InitDescriptors();
   void InitPipelines();
   void InitBackgroundPipelines();
+  void CreateDrawImage(VkExtent2D);
+  void UpdateDrawImageDescriptors();
+  void InitTrianglePipeline();
 
   void DrawBackground(VkCommandBuffer cmd);
+  void DrawGeometry(VkCommandBuffer cmd);
 
 private:
   std::shared_ptr<Window> m_window;
 
+  Instance m_instance_raii;
   VkInstance m_instance;
   VkDebugUtilsMessengerEXT m_messenger;
 
   Device m_device;
+  Swapchain m_swapchain;
 
   VkSurfaceKHR m_surface;
-  std::shared_ptr<Swapchain> m_swapchain;
 
   uint32_t m_frame_number = 0;
   std::array<FrameData, kMaxFramesInFlight> m_frames;
@@ -106,7 +123,9 @@ private:
   int m_current_bg_effect = 0;
   std::vector<ComputeEffect> m_bg_effects;
 
-  // ImGui (temp)
-  std::shared_ptr<ImGui> m_imgui;
+  ImGui m_imgui;
+
+  VkPipelineLayout m_triangle_pipeline_layout;
+  VkPipeline m_triangle_pipeline;
 };
 } // namespace craft::vk

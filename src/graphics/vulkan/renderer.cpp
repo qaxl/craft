@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <array>
 #include <iostream>
-#include <ranges>
 #include <set>
 #include <vector>
 
@@ -205,6 +204,8 @@ Renderer::Renderer(std::shared_ptr<Window> window) : m_window{window} {
 
   m_instance = CreateInstance(window, {{VK_EXT_DEBUG_UTILS_EXTENSION_NAME, false}}, {"VK_LAYER_KHRONOS_validation"},
                               "craft app", m_messenger);
+  // This is just to make sure that the VkInstance gets destroyed the last.
+  m_instance_raii.instance = m_instance;
 
   DeviceFeatures features{};
   features.vk_1_3_features.dynamicRendering = true;
@@ -233,73 +234,30 @@ Renderer::Renderer(std::shared_ptr<Window> window) : m_window{window} {
   VkSurfaceCapabilitiesKHR caps;
   vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_device.GetPhysicalDevice(), m_surface, &caps);
 
-  m_swapchain = std::make_shared<Swapchain>(m_device.GetDevice(), m_surface, extent, caps.currentTransform);
-
-  // TODO: MOVE OUT OF THIS FUNCTION
-  VkExtent3D draw_image_extent{extent.width, extent.height, 1};
-  m_draw_image.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-  m_draw_image.extent = draw_image_extent;
-
-  VkImageUsageFlags draw_image_usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                                       VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-
-  VkImageCreateInfo img_info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-  img_info.format = m_draw_image.format;
-  img_info.usage = draw_image_usage;
-  img_info.extent = draw_image_extent;
-  img_info.mipLevels = 1;
-  img_info.arrayLayers = 1;
-  img_info.samples = VK_SAMPLE_COUNT_1_BIT;
-  img_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-  img_info.imageType = VK_IMAGE_TYPE_2D;
-
-  VmaAllocationCreateInfo img_alloc{};
-  img_alloc.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-  img_alloc.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-
-  VK_CHECK(vmaCreateImage(m_allocator, &img_info, &img_alloc, &m_draw_image.image, &m_draw_image.allocation, nullptr));
-
-  VkImageViewCreateInfo view_info{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-  view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-  view_info.image = m_draw_image.image;
-  view_info.format = m_draw_image.format;
-  view_info.subresourceRange.levelCount = 1;
-  view_info.subresourceRange.layerCount = 1;
-  view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-
-  VK_CHECK(vkCreateImageView(m_device.GetDevice(), &view_info, nullptr, &m_draw_image.view));
-  // END OF MOVE OUT OF THIS FUNCTION.
+  m_swapchain = Swapchain{m_device.GetDevice(), m_surface, extent, caps.currentTransform};
+  m_draw_image = AllocatedImage{m_device.GetDevice(), m_allocator, extent};
 
   InitCommands();
   InitSyncStructures();
   InitDescriptors();
   InitPipelines();
 
-  std::cout << m_device.GetGraphicsQueue() << std::endl;
-
-  m_imgui = std::make_shared<ImGui>(m_instance, m_device.GetPhysicalDevice(), m_device.GetDevice(), m_window,
-                                    m_device.GetGraphicsQueue(), 0);
+  m_imgui = ImGui{m_instance, m_window, &m_device};
 }
 
 Renderer::~Renderer() {
-  std::cout << "Wait... ";
-  vkDeviceWaitIdle(m_device.GetDevice());
-  std::cout << "Destroy..." << std::endl;
+  m_device.WaitIdle();
 
-  // Manually kill all other structures before...
-  m_imgui = nullptr;
+  vkDestroyPipelineLayout(m_device.GetDevice(), m_triangle_pipeline_layout, nullptr);
+  vkDestroyPipeline(m_device.GetDevice(), m_triangle_pipeline, nullptr);
 
   vkDestroyPipelineLayout(m_device.GetDevice(), m_gradient_pipeline_layout, nullptr);
   for (auto &bg_effect : m_bg_effects) {
     vkDestroyPipeline(m_device.GetDevice(), bg_effect.pipeline, nullptr);
   }
-  // vkDestroyPipeline(m_device, m_gradient_pipeline, nullptr);
 
   m_descriptor_allocator.DestroyPool(m_device.GetDevice());
   vkDestroyDescriptorSetLayout(m_device.GetDevice(), m_draw_image_descriptor_layout, nullptr);
-
-  vkDestroyImageView(m_device.GetDevice(), m_draw_image.view, nullptr);
-  vmaDestroyImage(m_allocator, m_draw_image.image, m_draw_image.allocation);
 
   vmaDestroyAllocator(m_allocator);
 
@@ -311,7 +269,6 @@ Renderer::~Renderer() {
     vkDestroyCommandPool(m_device.GetDevice(), frame.command_pool, nullptr);
   }
 
-  m_swapchain = nullptr;
   vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
   vkDestroyDevice(m_device.GetDevice(), nullptr);
 
@@ -320,68 +277,6 @@ Renderer::~Renderer() {
     vkDestroyDebugUtilsMessengerEXT(m_instance, m_messenger, nullptr);
   }
 #endif
-
-  vkDestroyInstance(m_instance, nullptr);
-}
-
-// TODO: vulkan_images.h?
-static VkImageSubresourceRange ImageSubresourceRange(VkImageAspectFlags aspect_mask) {
-  return VkImageSubresourceRange{
-      .aspectMask = aspect_mask, .levelCount = VK_REMAINING_MIP_LEVELS, .layerCount = VK_REMAINING_ARRAY_LAYERS};
-}
-
-static void TransitionImage(VkCommandBuffer cmd, VkImage image, VkImageLayout current_layout,
-                            VkImageLayout new_layout) {
-  VkImageMemoryBarrier2 image_barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-
-  image_barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-  image_barrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
-  image_barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-  image_barrier.dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT;
-
-  image_barrier.oldLayout = current_layout;
-  image_barrier.newLayout = new_layout;
-
-  VkImageAspectFlags aspect_mask =
-      (new_layout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
-  image_barrier.subresourceRange = ImageSubresourceRange(aspect_mask);
-  image_barrier.image = image;
-
-  VkDependencyInfo dep_info{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-  dep_info.imageMemoryBarrierCount = 1;
-  dep_info.pImageMemoryBarriers = &image_barrier;
-
-  vkCmdPipelineBarrier2(cmd, &dep_info);
-}
-
-static void CloneImage(VkCommandBuffer cmd, VkImage source, VkImage destination, VkExtent2D source_size,
-                       VkExtent2D destination_size) {
-  VkImageBlit2 blit_region{VK_STRUCTURE_TYPE_IMAGE_BLIT_2};
-
-  blit_region.srcOffsets[1].x = source_size.width;
-  blit_region.srcOffsets[1].y = source_size.height;
-  blit_region.srcOffsets[1].z = 1;
-
-  blit_region.dstOffsets[1].x = destination_size.width;
-  blit_region.dstOffsets[1].y = destination_size.height;
-  blit_region.dstOffsets[1].z = 1;
-
-  blit_region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-  blit_region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-
-  blit_region.srcSubresource.layerCount = 1;
-  blit_region.dstSubresource.layerCount = 1;
-
-  VkBlitImageInfo2 blit_info{VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2};
-  blit_info.srcImage = source;
-  blit_info.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-  blit_info.dstImage = destination;
-  blit_info.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-  blit_info.filter = VK_FILTER_LINEAR;
-  blit_info.regionCount = 1;
-  blit_info.pRegions = &blit_region;
-
-  vkCmdBlitImage2(cmd, &blit_info);
 }
 
 void Renderer::Draw() {
@@ -390,7 +285,7 @@ void Renderer::Draw() {
   VK_CHECK(vkWaitForFences(m_device.GetDevice(), 1, &frame.fe_render, true, 1 * 1000 * 1000 * 1000));
   VK_CHECK(vkResetFences(m_device.GetDevice(), 1, &frame.fe_render));
 
-  auto [image, view] = m_swapchain->AcquireNextImage(frame.sp_swapchain);
+  auto [image, view] = m_swapchain.AcquireNextImage(frame.sp_swapchain);
 
   VkCommandBuffer cmd = frame.command_buffer;
   VK_CHECK(vkResetCommandBuffer(cmd, 0));
@@ -405,13 +300,20 @@ void Renderer::Draw() {
 
   TransitionImage(cmd, m_draw_image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
   DrawBackground(cmd);
-  TransitionImage(cmd, m_draw_image.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+
+  TransitionImage(cmd, m_draw_image.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+  DrawGeometry(cmd);
+
+  TransitionImage(cmd, m_draw_image.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                  VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
   TransitionImage(cmd, image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
   CloneImage(cmd, m_draw_image.image, image, m_draw_extent, m_draw_extent);
   TransitionImage(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
-  m_imgui->Draw(cmd, view);
+  m_imgui.Draw(cmd, view, m_draw_extent);
+
   TransitionImage(cmd, image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
   VK_CHECK(vkEndCommandBuffer(cmd));
@@ -427,18 +329,24 @@ void Renderer::Draw() {
 
   VkPresentInfoKHR present_info{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
   present_info.swapchainCount = 1;
-  present_info.pSwapchains = m_swapchain->GetHandlePtr();
+  present_info.pSwapchains = m_swapchain.GetHandlePtr();
 
   present_info.waitSemaphoreCount = 1;
   present_info.pWaitSemaphores = &frame.sp_render;
 
-  uint32_t current_index = m_swapchain->GetCurrentImageIndex();
+  uint32_t current_index = m_swapchain.GetCurrentImageIndex();
   present_info.pImageIndices = &current_index;
 
   VkResult queue_present = vkQueuePresentKHR(m_device.GetGraphicsQueue(), &present_info);
   if (queue_present != VK_SUCCESS) {
     if (queue_present == VK_SUBOPTIMAL_KHR) {
-      // TODO: abstract swapchain
+      auto [width, height] = m_window->GetSize();
+      m_swapchain.Resize(width, height);
+
+      m_draw_extent = {width, height};
+      m_draw_image = AllocatedImage{m_device.GetDevice(), m_allocator, m_draw_extent};
+      m_device.WaitIdle();
+      UpdateDrawImageDescriptors();
     } else {
       VK_CHECK(queue_present);
     }
@@ -453,14 +361,10 @@ void Renderer::DrawBackground(VkCommandBuffer cmd) {
 
   ComputeEffect &effect = m_bg_effects[m_current_bg_effect];
 
-  // vkCmdClearColorImage(cmd, m_draw_image.image, VK_IMAGE_LAYOUT_GENERAL, &clear_value, 1, &clear_range);
   vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, effect.pipeline);
   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_gradient_pipeline_layout, 0, 1,
                           &m_draw_image_descriptors, 0, nullptr);
 
-  // ComputePushConstants pc{};
-  // pc.data[0] = Vec<float, 4>(1.f, 0.f, 0.f, 1.f);
-  // pc.data[1] = Vec<float, 4>(0.f, 0.f, 1.f, 1.f);
   vkCmdPushConstants(cmd, m_gradient_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants),
                      &effect.pc);
 
@@ -508,6 +412,10 @@ void Renderer::InitDescriptors() {
 
   m_draw_image_descriptors = m_descriptor_allocator.Allocate(m_device.GetDevice(), m_draw_image_descriptor_layout);
 
+  UpdateDrawImageDescriptors();
+}
+
+void Renderer::UpdateDrawImageDescriptors() {
   VkDescriptorImageInfo info{};
   info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
   info.imageView = m_draw_image.view;
@@ -521,7 +429,10 @@ void Renderer::InitDescriptors() {
   vkUpdateDescriptorSets(m_device.GetDevice(), 1, &draw_image_write, 0, nullptr);
 }
 
-void Renderer::InitPipelines() { InitBackgroundPipelines(); }
+void Renderer::InitPipelines() {
+  InitBackgroundPipelines();
+  InitTrianglePipeline();
+}
 
 void Renderer::InitBackgroundPipelines() {
   VkPipelineLayoutCreateInfo compute_layout{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
@@ -605,7 +516,6 @@ static std::shared_ptr<ImmSbm_> CreateImmediateSubmissionStructures(VkDevice dev
   return sbm;
 }
 
-// TODO: a dedicated submit queue, and perhaps a transfer queue
 void Renderer::SubmitNow(std::function<void(VkCommandBuffer)> f) {
   static thread_local auto imm = CreateImmediateSubmissionStructures(m_device.GetDevice());
 
@@ -627,5 +537,69 @@ void Renderer::SubmitNow(std::function<void(VkCommandBuffer)> f) {
 
   VK_CHECK(vkQueueSubmit2(m_device.GetTransferQueue(), 1, &submit, imm->fence));
   VK_CHECK(vkWaitForFences(m_device.GetDevice(), 1, &imm->fence, VK_TRUE, 1000'000'000));
+}
+
+void Renderer::CreateDrawImage(VkExtent2D extent) {}
+
+void Renderer::InitTrianglePipeline() {
+  auto triangle_vertex = LoadShaderModule("../shaders/triangle.vert.spv", m_device.GetDevice());
+  auto triangle_fragment = LoadShaderModule("../shaders/triangle.frag.spv", m_device.GetDevice());
+
+  if (!triangle_vertex || !triangle_fragment) {
+    RuntimeError::Throw("Couldn't load triangle shaders!");
+  }
+
+  VkPipelineLayoutCreateInfo layout_info{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+  VK_CHECK(vkCreatePipelineLayout(m_device.GetDevice(), &layout_info, nullptr, &m_triangle_pipeline_layout));
+
+  GraphicsPipelineBuilder builder;
+
+  builder.pipeline_layout = m_triangle_pipeline_layout;
+  builder.SetShaders(*triangle_vertex, *triangle_fragment);
+  builder.SetInputTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+  builder.SetPolygonMode(VK_POLYGON_MODE_FILL);
+  builder.SetCullMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
+  builder.DisableMSAA();
+  builder.DisableBlending();
+  builder.DisableDepthTest();
+
+  builder.SetColorAttachmentFormat(m_draw_image.format);
+
+  m_triangle_pipeline = builder.Build(m_device.GetDevice());
+
+  vkDestroyShaderModule(m_device.GetDevice(), *triangle_vertex, nullptr);
+  vkDestroyShaderModule(m_device.GetDevice(), *triangle_fragment, nullptr);
+}
+
+void Renderer::DrawGeometry(VkCommandBuffer cmd) {
+  VkRenderingAttachmentInfo color_attachment =
+      AttachmentInfo(m_draw_image.view, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+  VkRenderingInfo rendering_info{
+      .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+      .renderArea = {.extent = m_draw_extent},
+      .layerCount = 1,
+      .colorAttachmentCount = 1,
+      .pColorAttachments = &color_attachment,
+  };
+
+  vkCmdBeginRendering(cmd, &rendering_info);
+
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_triangle_pipeline);
+
+  VkViewport viewport{
+      .width = static_cast<float>(m_draw_extent.width),
+      .height = static_cast<float>(m_draw_extent.height),
+      .minDepth = 0.0f,
+      .maxDepth = 1.0f,
+  };
+  vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+  VkRect2D scissor{.extent = m_draw_extent};
+  vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+  vkCmdDraw(cmd, 3, 1, 0, 0);
+
+  vkCmdEndRendering(cmd);
 }
 } // namespace craft::vk

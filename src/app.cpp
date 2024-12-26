@@ -5,7 +5,13 @@
 #include <SDL3/SDL.h>
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_vulkan.h>
+#include <steam/isteamapps.h>
+#include <steam/isteamfriends.h>
+#include <steam/isteammatchmaking.h>
+#include <steam/isteamnetworkingsockets.h>
+#include <steam/isteamnetworkingutils.h>
 #include <steam/steam_api.h>
+#include <steam/steam_api_common.h>
 #include <volk.h>
 
 #include "graphics/vulkan/renderer.hpp"
@@ -13,12 +19,6 @@
 #include "graphics/widgets/render_time_widget.hpp"
 #include "graphics/widgets/util_widget.hpp"
 #include "graphics/widgets/widget.hpp"
-#include "steam/isteamapps.h"
-#include "steam/isteamfriends.h"
-#include "steam/isteammatchmaking.h"
-#include "steam/isteamnetworkingsockets.h"
-#include "steam/isteamnetworkingutils.h"
-#include "steam/steam_api_common.h"
 #include "util/error.hpp"
 
 namespace craft {

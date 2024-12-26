@@ -68,6 +68,9 @@ public:
     other.m_instance = nullptr;
     other.m_device = nullptr;
     other.m_physical_device = nullptr;
+    other.m_graphics = nullptr;
+    other.m_transfer = nullptr;
+    other.m_compute = nullptr;
 
     return *this;
   }
@@ -79,6 +82,8 @@ public:
   FORCE_INLINE VkQueue GetGraphicsQueue() { return m_graphics; }
   FORCE_INLINE VkQueue GetTransferQueue() { return m_transfer; }
   FORCE_INLINE VkQueue GetComputeQueue() { return m_compute; }
+
+  FORCE_INLINE void WaitIdle() { vkDeviceWaitIdle(m_device); }
 
 private:
   void SelectPhysicalDevice(std::initializer_list<DeviceExtension> extensions, const DeviceFeatures *features);

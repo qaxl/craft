@@ -1,5 +1,6 @@
 #pragma once
 
+#include "device.hpp"
 #include "platform/window.hpp"
 
 #include <volk.h>
@@ -10,17 +11,30 @@ namespace craft::vk {
 class ImGui {
 public:
   ImGui() {}
-  ImGui(VkInstance instance, VkPhysicalDevice gpu, VkDevice device, std::shared_ptr<Window> window, VkQueue queue,
-        uint32_t queue_family);
+  ImGui(VkInstance instance, std::shared_ptr<Window> window, Device *device);
   ~ImGui();
 
-  ImGui(ImGui &) = delete;
+  ImGui(const ImGui &) = delete;
+  ImGui(ImGui &&other) { *this = std::move(other); }
 
-  void Draw(VkCommandBuffer cmd, VkImageView view) const;
+  ImGui &operator=(const ImGui &) = delete;
+  ImGui &operator=(ImGui &&other) {
+    this->m_instance = other.m_instance;
+    this->m_device = other.m_device;
+    this->m_pool = other.m_pool;
+
+    other.m_instance = nullptr;
+    other.m_device = nullptr;
+    other.m_pool = nullptr;
+
+    return *this;
+  }
+
+  void Draw(VkCommandBuffer cmd, VkImageView view, VkExtent2D extent) const;
 
 private:
   VkInstance m_instance = nullptr;
-  VkDevice m_device = nullptr;
+  Device *m_device = nullptr;
 
   VkDescriptorPool m_pool = nullptr;
 };

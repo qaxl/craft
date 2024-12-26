@@ -9,7 +9,7 @@
 
 #ifndef I_DONT_CARE_IF_SOMETHING_GOES_WRONG_JUST_LET_ME
 static_assert(sizeof(void *) == 8, "32-bit architecture IS NOT supported. You can still try building this project, but "
-                                   "no support will be offered in case of something goes wrong.");
+                                   "no support will be offered in case of something going wrong.");
 #endif
 
 int main(int argc, char **argv) {
