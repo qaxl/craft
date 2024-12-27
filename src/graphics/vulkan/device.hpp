@@ -64,6 +64,8 @@ public:
     this->m_graphics = other.m_graphics;
     this->m_transfer = other.m_transfer;
     this->m_compute = other.m_compute;
+    this->m_current_device = other.m_current_device;
+    this->m_devices = std::move(other.m_devices);
 
     other.m_instance = nullptr;
     other.m_device = nullptr;
@@ -71,6 +73,7 @@ public:
     other.m_graphics = nullptr;
     other.m_transfer = nullptr;
     other.m_compute = nullptr;
+    other.m_current_device = nullptr;
 
     return *this;
   }
@@ -82,6 +85,18 @@ public:
   FORCE_INLINE VkQueue GetGraphicsQueue() { return m_graphics; }
   FORCE_INLINE VkQueue GetTransferQueue() { return m_transfer; }
   FORCE_INLINE VkQueue GetComputeQueue() { return m_compute; }
+
+  FORCE_INLINE uint32_t GetGraphicsQueueFamily() { return m_current_device->indices.graphics_queue_family->index; }
+  FORCE_INLINE uint32_t GetTransferQueueFamily() {
+    return m_current_device->indices.transfer_queue_family.has_value()
+               ? m_current_device->indices.transfer_queue_family->index
+               : GetGraphicsQueueFamily();
+  }
+  FORCE_INLINE uint32_t GetComputeQueueFamily() {
+    return m_current_device->indices.compute_queue_family.has_value()
+               ? m_current_device->indices.compute_queue_family->index
+               : GetGraphicsQueueFamily();
+  }
 
   FORCE_INLINE void WaitIdle() { vkDeviceWaitIdle(m_device); }
 
@@ -99,5 +114,7 @@ private:
   VkQueue m_graphics{};
   VkQueue m_transfer{};
   VkQueue m_compute{};
+
+  SuitableDevice *m_current_device{};
 };
 } // namespace craft::vk

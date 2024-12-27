@@ -7,6 +7,11 @@ template <typename T, size_t N, size_t M> struct Mat {
   T v[N][M];
 
   constexpr Mat() : v{} {}
+  constexpr Mat(T ident_value) : v{} {
+    for (size_t i = 0; i < M; ++i) {
+      v[i][i] = ident_value;
+    }
+  }
 
   template <typename... Args> constexpr Mat(Args &&...args) {
     static_assert(sizeof...(args) == N * M, "Number of arguments must match the size of the matrix");

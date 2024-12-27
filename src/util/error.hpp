@@ -33,7 +33,8 @@ public:
   static bool HasAnError() { return s_has_an_error.load(std::memory_order_relaxed); }
 
   static void SetErrorString(std::string_view description, ErrorFlags flags = EF_None);
-  static void Throw(std::string_view description, ErrorFlags flags = EF_None);
+  [[noreturn]] static void Throw(std::string_view description, ErrorFlags flags = EF_None);
+  [[noreturn]] static void Unreachable() { Throw("unreachable", EF_DumpStacktrace); }
 
   static ErrorString GetErrorString() { return ErrorString(s_mutex, s_description); }
 

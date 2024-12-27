@@ -14,16 +14,21 @@
 #include "image.hpp"
 #include "imgui.hpp"
 #include "math/vec.hpp"
+#include "mesh.hpp"
 #include "platform/window.hpp"
 #include "swapchain.hpp"
 
 namespace craft::vk {
 struct Instance {
   VkInstance instance{};
+  VmaAllocator allocator{};
 
   ~Instance() {
     if (instance)
       vkDestroyInstance(instance, nullptr);
+
+    if (allocator)
+      vmaDestroyAllocator(allocator);
   }
 };
 
@@ -85,6 +90,8 @@ private:
   void CreateDrawImage(VkExtent2D);
   void UpdateDrawImageDescriptors();
   void InitTrianglePipeline();
+  void InitTriangleMeshPipeline();
+  void InitDefaultData();
 
   void DrawBackground(VkCommandBuffer cmd);
   void DrawGeometry(VkCommandBuffer cmd);
@@ -127,5 +134,10 @@ private:
 
   VkPipelineLayout m_triangle_pipeline_layout;
   VkPipeline m_triangle_pipeline;
+
+  VkPipelineLayout m_triangle_mesh_pipeline_layout;
+  VkPipeline m_triangle_mesh_pipeline;
+
+  MeshBuffers m_mesh;
 };
 } // namespace craft::vk

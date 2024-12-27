@@ -154,7 +154,7 @@ void RuntimeError::SetErrorString(std::string_view description, ErrorFlags flags
   s_has_an_error.store(true);
 }
 
-void RuntimeError::Throw(std::string_view description, ErrorFlags flags) {
+[[noreturn]] void RuntimeError::Throw(std::string_view description, ErrorFlags flags) {
   SetErrorString(description, static_cast<ErrorFlags>(flags | EF_Passthrough));
   SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Craft Engine: A Runtime Error Has Occurred", s_description.c_str(),
                            nullptr);

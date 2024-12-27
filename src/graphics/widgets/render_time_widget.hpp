@@ -7,7 +7,7 @@
 namespace craft {
 class RenderTimingsWidget : public Widget {
 public:
-  RenderTimingsWidget() {
+  RenderTimingsWidget(float *render_time) : render_time(render_time) {
     m_name = "Render Timings";
     m_closable = true;
   }
@@ -21,9 +21,11 @@ public:
     float fps = 1.f / delta_s;
 
     ImGui::Text("FPS: %f", fps);
+    ImGui::Text("Frame Time: %fms", *render_time);
   }
 
 private:
   uint64_t last_frame = SDL_GetTicksNS();
+  float *render_time = nullptr;
 };
 } // namespace craft

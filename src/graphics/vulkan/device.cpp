@@ -9,6 +9,8 @@
 
 #include "utils.hpp"
 
+#include <iostream>
+
 namespace craft::vk {
 Device::Device(VkInstance instance, std::initializer_list<DeviceExtension> extensions, const DeviceFeatures *features)
     : m_instance{instance} {
@@ -135,14 +137,17 @@ void Device::SelectPhysicalDevice(std::initializer_list<DeviceExtension> extensi
                                                      props.deviceName, extensions_enabled});
       });
 
-  if (suitable_devices.empty()) {
+  m_devices = std::move(suitable_devices);
+  if (m_devices.empty()) {
     RuntimeError::Throw(
         "Not a single suitable Vulkan-capable device were found in the system. Please ensure you have Vulkan-capable "
         "graphics card(s) in the first place,\nand if you do - consider upgrading your graphics drivers.\n\nThis "
         "program "
         "cannot continue, since Vulkan-capable device is a hard requirement for this program to run.");
   } else {
-    m_devices = std::move(suitable_devices);
+
+    std::cout << m_devices.size() << ',' << m_devices.empty() << ',' << &m_devices[0] << ',' << m_devices[0].name
+              << std::endl;
 
     if (auto it = std::find_if(m_devices.begin(), m_devices.end(),
                                [](const SuitableDevice &device) { return device.discrete; });
@@ -155,6 +160,8 @@ void Device::SelectPhysicalDevice(std::initializer_list<DeviceExtension> extensi
 }
 
 void Device::CreateDevice(SuitableDevice *device) {
+  m_current_device = device;
+
   VkDeviceCreateInfo create_info{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
 
   create_info.enabledExtensionCount = device->extensions.size();

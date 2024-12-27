@@ -11,7 +11,7 @@ class Swapchain {
 public:
   Swapchain() {}
   Swapchain(VkDevice device, VkSurfaceKHR surface, VkExtent2D extent, VkSurfaceTransformFlagBitsKHR current_transform,
-            VkPresentModeKHR present_mode = VK_PRESENT_MODE_FIFO_RELAXED_KHR, Swapchain *old_swapchain = nullptr);
+            VkPresentModeKHR present_mode = VK_PRESENT_MODE_MAILBOX_KHR, Swapchain *old_swapchain = nullptr);
   ~Swapchain();
 
   Swapchain(const Swapchain &) = delete;
@@ -26,6 +26,7 @@ public:
     this->m_images = std::move(other.m_images);
     this->m_views = std::move(other.m_views);
     this->m_current_index = other.m_current_index;
+    this->m_present_mode = other.m_present_mode;
 
     other.m_device = nullptr;
     other.m_surface = nullptr;
@@ -56,6 +57,7 @@ private:
   VkSurfaceKHR m_surface{};
   VkSwapchainKHR m_swapchain{};
 
+  VkPresentModeKHR m_present_mode{};
   VkSurfaceTransformFlagBitsKHR m_transform{};
 
   std::vector<VkImage> m_images;

@@ -12,6 +12,8 @@
 #include <imgui_impl_vulkan.h>
 
 #include "device.hpp"
+#include "math/mat.hpp"
+#include "mesh.hpp"
 #include "pipeline.hpp"
 #include "swapchain.hpp"
 #include "util/error.hpp"
@@ -202,14 +204,16 @@ static VkInstance CreateInstance(std::shared_ptr<Window> window, std::initialize
 Renderer::Renderer(std::shared_ptr<Window> window) : m_window{window} {
   std::vector<const char *> enabled_exts;
 
-  m_instance = CreateInstance(window, {{VK_EXT_DEBUG_UTILS_EXTENSION_NAME, false}}, {"VK_LAYER_KHRONOS_validation"},
-                              "craft app", m_messenger);
+  m_instance =
+      CreateInstance(window, {{VK_EXT_DEBUG_UTILS_EXTENSION_NAME, false}, {VK_EXT_ROBUSTNESS_2_EXTENSION_NAME, false}},
+                     {/* use vulkan configurator, thank you :) */}, "craft app", m_messenger);
   // This is just to make sure that the VkInstance gets destroyed the last.
   m_instance_raii.instance = m_instance;
 
   DeviceFeatures features{};
   features.vk_1_3_features.dynamicRendering = true;
   features.vk_1_3_features.synchronization2 = true;
+  features.vk_1_2_features.bufferDeviceAddress = true;
   // ImGui requirement
   features.vk_1_2_features.bufferDeviceAddress = true;
 
@@ -225,6 +229,7 @@ Renderer::Renderer(std::shared_ptr<Window> window) : m_window{window} {
   allocator_info.pVulkanFunctions = &funcs;
 
   vmaCreateAllocator(&allocator_info, &m_allocator);
+  m_instance_raii.allocator = m_allocator;
 
   auto [width, height] = window->GetSize();
   VkExtent2D extent{width, height};
@@ -241,12 +246,19 @@ Renderer::Renderer(std::shared_ptr<Window> window) : m_window{window} {
   InitSyncStructures();
   InitDescriptors();
   InitPipelines();
+  InitDefaultData();
 
   m_imgui = ImGui{m_instance, m_window, &m_device};
 }
 
 Renderer::~Renderer() {
   m_device.WaitIdle();
+
+  DestroyBuffer(m_allocator, std::move(m_mesh.index));
+  DestroyBuffer(m_allocator, std::move(m_mesh.vertex));
+
+  vkDestroyPipelineLayout(m_device.GetDevice(), m_triangle_mesh_pipeline_layout, nullptr);
+  vkDestroyPipeline(m_device.GetDevice(), m_triangle_mesh_pipeline, nullptr);
 
   vkDestroyPipelineLayout(m_device.GetDevice(), m_triangle_pipeline_layout, nullptr);
   vkDestroyPipeline(m_device.GetDevice(), m_triangle_pipeline, nullptr);
@@ -258,8 +270,6 @@ Renderer::~Renderer() {
 
   m_descriptor_allocator.DestroyPool(m_device.GetDevice());
   vkDestroyDescriptorSetLayout(m_device.GetDevice(), m_draw_image_descriptor_layout, nullptr);
-
-  vmaDestroyAllocator(m_allocator);
 
   for (auto &frame : m_frames) {
     vkDestroyFence(m_device.GetDevice(), frame.fe_render, nullptr);
@@ -281,11 +291,10 @@ Renderer::~Renderer() {
 
 void Renderer::Draw() {
   auto &frame = GetCurrentFrame();
-
-  VK_CHECK(vkWaitForFences(m_device.GetDevice(), 1, &frame.fe_render, true, 1 * 1000 * 1000 * 1000));
+  VK_CHECK(vkWaitForFences(m_device.GetDevice(), 1, &frame.fe_render, true, 1'000'000'000));
   VK_CHECK(vkResetFences(m_device.GetDevice(), 1, &frame.fe_render));
 
-  auto [image, view] = m_swapchain.AcquireNextImage(frame.sp_swapchain);
+  auto [image, view] = m_swapchain.AcquireNextImage(frame.sp_swapchain, 1'000'000'000);
 
   VkCommandBuffer cmd = frame.command_buffer;
   VK_CHECK(vkResetCommandBuffer(cmd, 0));
@@ -298,10 +307,10 @@ void Renderer::Draw() {
 
   VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
 
-  TransitionImage(cmd, m_draw_image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
-  DrawBackground(cmd);
+  // TransitionImage(cmd, m_draw_image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+  // DrawBackground(cmd);
 
-  TransitionImage(cmd, m_draw_image.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+  TransitionImage(cmd, m_draw_image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
   DrawGeometry(cmd);
 
@@ -340,12 +349,12 @@ void Renderer::Draw() {
   VkResult queue_present = vkQueuePresentKHR(m_device.GetGraphicsQueue(), &present_info);
   if (queue_present != VK_SUCCESS) {
     if (queue_present == VK_SUBOPTIMAL_KHR) {
+      m_device.WaitIdle();
       auto [width, height] = m_window->GetSize();
       m_swapchain.Resize(width, height);
 
       m_draw_extent = {width, height};
       m_draw_image = AllocatedImage{m_device.GetDevice(), m_allocator, m_draw_extent};
-      m_device.WaitIdle();
       UpdateDrawImageDescriptors();
     } else {
       VK_CHECK(queue_present);
@@ -354,10 +363,11 @@ void Renderer::Draw() {
 }
 
 void Renderer::DrawBackground(VkCommandBuffer cmd) {
-  float flash = std::abs(std::sin(m_frame_number / 120.f));
-  VkClearColorValue clear_value{{0.f, 0.f, flash, 1.f}};
+  // float flash = std::abs(std::sin(m_frame_number / 120.f));
+  // VkClearColorValue clear_value{{0.f, 0.f, flash, 1.f}};
 
-  VkImageSubresourceRange clear_range = ImageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
+  // VkImageSubresourceRange clear_range = ImageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
+  // vkCmdClearColorImage(cmd, m_draw_image.image, VK_IMAGE_LAYOUT_GENERAL, &clear_value, 1, &clear_range);
 
   ComputeEffect &effect = m_bg_effects[m_current_bg_effect];
 
@@ -374,8 +384,7 @@ void Renderer::DrawBackground(VkCommandBuffer cmd) {
 void Renderer::InitCommands() {
   VkCommandPoolCreateInfo create_info{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
   create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-  // TODO: dynamic
-  create_info.queueFamilyIndex = 0;
+  create_info.queueFamilyIndex = m_device.GetGraphicsQueueFamily();
 
   for (size_t i = 0; i < kMaxFramesInFlight; ++i) {
     VK_CHECK(vkCreateCommandPool(m_device.GetDevice(), &create_info, nullptr, &m_frames[i].command_pool));
@@ -409,7 +418,6 @@ void Renderer::InitDescriptors() {
   DescriptorLayoutBuilder builder;
   builder.AddBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
   m_draw_image_descriptor_layout = builder.Build(m_device.GetDevice(), VK_SHADER_STAGE_COMPUTE_BIT);
-
   m_draw_image_descriptors = m_descriptor_allocator.Allocate(m_device.GetDevice(), m_draw_image_descriptor_layout);
 
   UpdateDrawImageDescriptors();
@@ -432,6 +440,7 @@ void Renderer::UpdateDrawImageDescriptors() {
 void Renderer::InitPipelines() {
   InitBackgroundPipelines();
   InitTrianglePipeline();
+  InitTriangleMeshPipeline();
 }
 
 void Renderer::InitBackgroundPipelines() {
@@ -494,30 +503,30 @@ struct ImmSbm_ {
   }
 };
 
-static std::shared_ptr<ImmSbm_> CreateImmediateSubmissionStructures(VkDevice device) {
+static std::shared_ptr<ImmSbm_> CreateImmediateSubmissionStructures(Device *device) {
   auto sbm = std::make_shared<ImmSbm_>();
 
   VkCommandPoolCreateInfo create_info{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
   create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
   // TODO: dynamic
-  create_info.queueFamilyIndex = 0;
-  VK_CHECK(vkCreateCommandPool(device, &create_info, nullptr, &sbm->pool));
+  create_info.queueFamilyIndex = device->GetTransferQueueFamily();
+  VK_CHECK(vkCreateCommandPool(device->GetDevice(), &create_info, nullptr, &sbm->pool));
 
   VkCommandBufferAllocateInfo alloc_info{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
   alloc_info.commandPool = sbm->pool;
   alloc_info.commandBufferCount = 1;
   alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 
-  VK_CHECK(vkAllocateCommandBuffers(device, &alloc_info, &sbm->cmd));
+  VK_CHECK(vkAllocateCommandBuffers(device->GetDevice(), &alloc_info, &sbm->cmd));
 
   VkFenceCreateInfo fence_info{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, nullptr, VK_FENCE_CREATE_SIGNALED_BIT};
-  VK_CHECK(vkCreateFence(device, &fence_info, nullptr, &sbm->fence));
+  VK_CHECK(vkCreateFence(device->GetDevice(), &fence_info, nullptr, &sbm->fence));
 
   return sbm;
 }
 
 void Renderer::SubmitNow(std::function<void(VkCommandBuffer)> f) {
-  static thread_local auto imm = CreateImmediateSubmissionStructures(m_device.GetDevice());
+  static thread_local auto imm = CreateImmediateSubmissionStructures(&m_device);
 
   VK_CHECK(vkResetFences(m_device.GetDevice(), 1, &imm->fence));
   VK_CHECK(vkResetCommandBuffer(imm->cmd, 0));
@@ -600,6 +609,64 @@ void Renderer::DrawGeometry(VkCommandBuffer cmd) {
 
   vkCmdDraw(cmd, 3, 1, 0, 0);
 
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_triangle_mesh_pipeline);
+
+  DrawPushConstants push_constants;
+  push_constants.vertex_buffer = m_mesh.vertex_addr;
+  push_constants.world = Mat<float, 4, 4>(1.0f);
+
+  vkCmdPushConstants(cmd, m_triangle_mesh_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(DrawPushConstants),
+                     &push_constants);
+  vkCmdBindIndexBuffer(cmd, m_mesh.index.buffer, 0, VK_INDEX_TYPE_UINT32);
+
+  vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
+
   vkCmdEndRendering(cmd);
+}
+
+void Renderer::InitTriangleMeshPipeline() {
+  auto triangle_vertex = LoadShaderModule("../shaders/triangle_mesh.vert.spv", m_device.GetDevice());
+  auto triangle_fragment = LoadShaderModule("../shaders/triangle.frag.spv", m_device.GetDevice());
+
+  if (!triangle_vertex || !triangle_fragment) {
+    RuntimeError::Throw("Couldn't load triangle shaders!");
+  }
+
+  VkPushConstantRange buffer_range{.stageFlags = VK_SHADER_STAGE_VERTEX_BIT, .size = sizeof(DrawPushConstants)};
+
+  VkPipelineLayoutCreateInfo layout_info{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+  layout_info.pushConstantRangeCount = 1;
+  layout_info.pPushConstantRanges = &buffer_range;
+
+  VK_CHECK(vkCreatePipelineLayout(m_device.GetDevice(), &layout_info, nullptr, &m_triangle_mesh_pipeline_layout));
+
+  GraphicsPipelineBuilder builder;
+
+  builder.pipeline_layout = m_triangle_mesh_pipeline_layout;
+  builder.SetShaders(*triangle_vertex, *triangle_fragment);
+  builder.SetInputTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+  builder.SetPolygonMode(VK_POLYGON_MODE_FILL);
+  builder.SetCullMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
+  builder.DisableMSAA();
+  builder.DisableBlending();
+  builder.DisableDepthTest();
+
+  builder.SetColorAttachmentFormat(m_draw_image.format);
+
+  m_triangle_mesh_pipeline = builder.Build(m_device.GetDevice());
+
+  vkDestroyShaderModule(m_device.GetDevice(), *triangle_vertex, nullptr);
+  vkDestroyShaderModule(m_device.GetDevice(), *triangle_fragment, nullptr);
+}
+
+void Renderer::InitDefaultData() {
+  std::array<Vertex, 4> vertices{Vertex{.position = {0.5f, -0.5f, 0.0f}, .color = {0.0f, 0.0f, 0.0f, 1.0f}},
+                                 Vertex{.position = {0.5f, 0.5f, 0.0f}, .color = {0.5f, 0.5f, 0.5f, 1.0f}},
+                                 Vertex{.position = {-0.5f, -0.5f, 0.0f}, .color = {1.0f, 0.0f, 0.0f, 1.0f}},
+                                 Vertex{.position = {-0.5f, 0.5f, 0.0f}, .color = {0.0f, 1.0f, 0.0f, 1.0f}}};
+
+  std::array<uint32_t, 6> indices{0, 1, 2, 2, 1, 3};
+
+  m_mesh = UploadMesh(this, m_device.GetDevice(), m_allocator, indices, vertices);
 }
 } // namespace craft::vk

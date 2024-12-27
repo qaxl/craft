@@ -1,4 +1,5 @@
 #include "swapchain.hpp"
+#include "util/error.hpp"
 #include "utils.hpp"
 
 #include <utility>
@@ -59,15 +60,17 @@ std::pair<VkImage, VkImageView> Swapchain::AcquireNextImage(VkSemaphore wait_sem
   VkResult res = vkAcquireNextImageKHR(m_device, m_swapchain, wait_time_ns, wait_semaphore, nullptr, &m_current_index);
   if (res == VK_SUBOPTIMAL_KHR || res == VK_SUCCESS) {
     return std::make_pair(m_images[m_current_index], m_views[m_current_index]);
+  } else if (res == VK_TIMEOUT) {
+    RuntimeError::Throw("Swapchain Image Timeout");
+  } else {
+    VK_CHECK(res);
+    RuntimeError::Unreachable();
   }
-
-  VK_CHECK(res);
-  std::unreachable();
 }
 
 void Swapchain::Resize(int width, int height) {
-  Swapchain swapchain(m_device, m_surface, VkExtent2D{(uint32_t)width, (uint32_t)height}, m_transform,
-                      VK_PRESENT_MODE_FIFO_RELAXED_KHR, this);
+  Swapchain swapchain(m_device, m_surface, VkExtent2D{(uint32_t)width, (uint32_t)height}, m_transform, m_present_mode,
+                      this);
   *this = std::move(swapchain);
 }
 } // namespace craft::vk

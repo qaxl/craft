@@ -5,6 +5,12 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "request": "attach",
+            "type": "lldb",
+            "name": "Debug already running instance",
+            "program": "${command:pickProcess}",
+        },
+        {
             "type": "lldb",
             "request": "launch",
             "name": "Debug",

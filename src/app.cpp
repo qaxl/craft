@@ -24,7 +24,7 @@
 namespace craft {
 App::~App() {
   SDL_Quit();
-  SteamAPI_Shutdown();
+  // SteamAPI_Shutdown();
 }
 
 // Callback Registration
@@ -49,10 +49,10 @@ void SteamCallbackHandler::OnJoinGame(GameRichPresenceJoinRequested_t *pCallback
 }
 
 App::App() {
-  if (!SteamAPI_Init()) {
-    // TODO: not make this forced.
-    RuntimeError::Throw("Steamworks API couldn't initialize.");
-  }
+  // if (!SteamAPI_Init()) {
+  //   // TODO: not make this forced.
+  //   RuntimeError::Throw("Steamworks API couldn't initialize.");
+  // }
 
   if (SDL_Init(SDL_INIT_VIDEO) == false) {
     RuntimeError::Throw("SDL Initialization Failure", EF_AppendSDLErrors);
@@ -79,10 +79,10 @@ App::App() {
 
   m_widget_manager = std::make_shared<WidgetManager>();
   m_widget_manager->AddWidget(std::make_unique<UtilWidget>());
-  m_widget_manager->AddWidget(std::make_unique<RenderTimingsWidget>());
+  m_widget_manager->AddWidget(std::make_unique<RenderTimingsWidget>(&time_taken_to_render));
   m_widget_manager->AddWidget(std::make_unique<BackgroundSettingsWidget>(m_renderer));
 
-  std::cout << "Hi, " << SteamFriends()->GetPersonaName() << "!" << std::endl;
+  // std::cout << "Hi, " << SteamFriends()->GetPersonaName() << "!" << std::endl;
 
   // char server_or_client;
   // std::cin >> server_or_client;
@@ -145,10 +145,17 @@ bool App::Run() {
 
     ImGui::Render();
 
+    uint64_t start = SDL_GetTicksNS();
+
     m_renderer->Draw();
+
+    uint64_t end = SDL_GetTicksNS();
+    uint64_t time_taken = end - start;
+    time_taken_to_render = static_cast<float>(time_taken) / 1000.0f / 1000.0f;
+
     m_window->PollEvents();
 
-    SteamAPI_RunCallbacks();
+    // SteamAPI_RunCallbacks();
   }
 
   return true;
