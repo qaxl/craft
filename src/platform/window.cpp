@@ -41,8 +41,8 @@ void Window::PollEvents() {
         spin = false;
         break;
       }
-
-      ImGui_ImplSDL3_ProcessEvent(&event);
+      // TODO: imgui
+      // ImGui_ImplSDL3_ProcessEvent(&event);
     }
 
     if (spin) {

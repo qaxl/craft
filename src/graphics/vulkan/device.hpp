@@ -100,6 +100,9 @@ public:
 
   FORCE_INLINE void WaitIdle() { vkDeviceWaitIdle(m_device); }
 
+  VkPresentModeKHR GetOptimalPresentMode(VkSurfaceKHR surface, bool vsync = true) const;
+  VkSurfaceFormatKHR GetOptimalSurfaceFormat(VkSurfaceKHR surface) const;
+
 private:
   void SelectPhysicalDevice(std::initializer_list<DeviceExtension> extensions, const DeviceFeatures *features);
   void CreateDevice(SuitableDevice *device);

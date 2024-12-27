@@ -8,6 +8,7 @@
 #include <SDL3/SDL_vulkan.h>
 
 #include "utils.hpp"
+#include "vulkan/vulkan_core.h"
 
 #include <iostream>
 
@@ -223,5 +224,44 @@ void Device::CreateDevice(SuitableDevice *device) {
   } else {
     m_compute = m_graphics;
   }
+}
+
+VkPresentModeKHR Device::GetOptimalPresentMode(VkSurfaceKHR surface, bool vsync) const {
+  auto present_modes =
+      GetProperties<VkPresentModeKHR>(vkGetPhysicalDeviceSurfacePresentModesKHR, m_physical_device, surface);
+
+  auto PresentModeSupported = [&present_modes](VkPresentModeKHR wanted) {
+    return std::find_if(present_modes.begin(), present_modes.end(),
+                        [&wanted](VkPresentModeKHR mode) { return mode == wanted; }) != present_modes.end();
+  };
+
+  if (vsync) {
+    if (PresentModeSupported(VK_PRESENT_MODE_FIFO_RELAXED_KHR)) {
+      return VK_PRESENT_MODE_FIFO_RELAXED_KHR;
+    }
+  } else {
+    if (PresentModeSupported(VK_PRESENT_MODE_MAILBOX_KHR)) {
+      return VK_PRESENT_MODE_MAILBOX_KHR;
+    }
+
+    if (PresentModeSupported(VK_PRESENT_MODE_IMMEDIATE_KHR)) {
+      return VK_PRESENT_MODE_IMMEDIATE_KHR;
+    }
+  }
+
+  return VK_PRESENT_MODE_FIFO_KHR;
+}
+
+VkSurfaceFormatKHR Device::GetOptimalSurfaceFormat(VkSurfaceKHR surface) const {
+  auto surface_formats =
+      GetProperties<VkSurfaceFormatKHR>(vkGetPhysicalDeviceSurfaceFormatsKHR, m_physical_device, surface);
+
+  for (auto format : surface_formats) {
+    if ((format.format == VK_FORMAT_B8G8R8A8_UNORM || format.format == VK_FORMAT_B8G8R8A8_SRGB) &&
+        format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+      return format;
+  }
+
+  return surface_formats[0];
 }
 } // namespace craft::vk

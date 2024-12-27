@@ -239,7 +239,12 @@ Renderer::Renderer(std::shared_ptr<Window> window) : m_window{window} {
   VkSurfaceCapabilitiesKHR caps;
   vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_device.GetPhysicalDevice(), m_surface, &caps);
 
-  m_swapchain = Swapchain{m_device.GetDevice(), m_surface, extent, caps.currentTransform};
+  m_swapchain = Swapchain{m_device.GetDevice(),
+                          m_surface,
+                          extent,
+                          caps.currentTransform,
+                          m_device.GetOptimalPresentMode(m_surface),
+                          m_device.GetOptimalSurfaceFormat(m_surface)};
   m_draw_image = AllocatedImage{m_device.GetDevice(), m_allocator, extent};
 
   InitCommands();
@@ -248,7 +253,7 @@ Renderer::Renderer(std::shared_ptr<Window> window) : m_window{window} {
   InitPipelines();
   InitDefaultData();
 
-  m_imgui = ImGui{m_instance, m_window, &m_device};
+  // m_imgui = ImGui{m_instance, m_window, &m_device};
 }
 
 Renderer::~Renderer() {
@@ -294,7 +299,20 @@ void Renderer::Draw() {
   VK_CHECK(vkWaitForFences(m_device.GetDevice(), 1, &frame.fe_render, true, 1'000'000'000));
   VK_CHECK(vkResetFences(m_device.GetDevice(), 1, &frame.fe_render));
 
-  auto [image, view] = m_swapchain.AcquireNextImage(frame.sp_swapchain, 1'000'000'000);
+  bool should_resize = false;
+
+  AcquiredImage res = m_swapchain.AcquireNextImage(frame.sp_swapchain, 1'000'000'000);
+  if (res.should_resize) {
+    if (res.image && res.view) {
+      should_resize = true;
+    } else {
+      ResizeSwapchain();
+      Draw();
+    }
+  }
+
+  VkImage image = res.image;
+  VkImageView view = res.view;
 
   VkCommandBuffer cmd = frame.command_buffer;
   VK_CHECK(vkResetCommandBuffer(cmd, 0));
@@ -321,7 +339,7 @@ void Renderer::Draw() {
   CloneImage(cmd, m_draw_image.image, image, m_draw_extent, m_draw_extent);
   TransitionImage(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
-  m_imgui.Draw(cmd, view, m_draw_extent);
+  // m_imgui.Draw(cmd, view, m_draw_extent);
 
   TransitionImage(cmd, image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
@@ -347,18 +365,10 @@ void Renderer::Draw() {
   present_info.pImageIndices = &current_index;
 
   VkResult queue_present = vkQueuePresentKHR(m_device.GetGraphicsQueue(), &present_info);
-  if (queue_present != VK_SUCCESS) {
-    if (queue_present == VK_SUBOPTIMAL_KHR) {
-      m_device.WaitIdle();
-      auto [width, height] = m_window->GetSize();
-      m_swapchain.Resize(width, height);
-
-      m_draw_extent = {width, height};
-      m_draw_image = AllocatedImage{m_device.GetDevice(), m_allocator, m_draw_extent};
-      UpdateDrawImageDescriptors();
-    } else {
-      VK_CHECK(queue_present);
-    }
+  if (queue_present == VK_SUBOPTIMAL_KHR || queue_present == VK_ERROR_OUT_OF_DATE_KHR || should_resize) {
+    ResizeSwapchain();
+  } else {
+    VK_CHECK(queue_present);
   }
 }
 
@@ -668,5 +678,15 @@ void Renderer::InitDefaultData() {
   std::array<uint32_t, 6> indices{0, 1, 2, 2, 1, 3};
 
   m_mesh = UploadMesh(this, m_device.GetDevice(), m_allocator, indices, vertices);
+}
+
+void Renderer::ResizeSwapchain() {
+  m_device.WaitIdle();
+  auto [width, height] = m_window->GetSize();
+  m_swapchain.Resize(width, height);
+
+  m_draw_extent = {width, height};
+  m_draw_image = AllocatedImage{m_device.GetDevice(), m_allocator, m_draw_extent};
+  UpdateDrawImageDescriptors();
 }
 } // namespace craft::vk

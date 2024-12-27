@@ -77,10 +77,10 @@ App::App() {
   m_window = std::make_shared<Window>(1024, 768, "test");
   m_renderer = std::make_shared<vk::Renderer>(m_window);
 
-  m_widget_manager = std::make_shared<WidgetManager>();
-  m_widget_manager->AddWidget(std::make_unique<UtilWidget>());
-  m_widget_manager->AddWidget(std::make_unique<RenderTimingsWidget>(&time_taken_to_render));
-  m_widget_manager->AddWidget(std::make_unique<BackgroundSettingsWidget>(m_renderer));
+  // m_widget_manager = std::make_shared<WidgetManager>();
+  // m_widget_manager->AddWidget(std::make_unique<UtilWidget>());
+  // m_widget_manager->AddWidget(std::make_unique<RenderTimingsWidget>(&time_taken_to_render));
+  // m_widget_manager->AddWidget(std::make_unique<BackgroundSettingsWidget>(m_renderer));
 
   // std::cout << "Hi, " << SteamFriends()->GetPersonaName() << "!" << std::endl;
 
@@ -137,13 +137,13 @@ bool App::Run() {
     float tick_difference = start_tick - end_tick;
     end_tick = start_tick;
 
-    ImGui_ImplVulkan_NewFrame();
-    ImGui_ImplSDL3_NewFrame();
-    ImGui::NewFrame();
+    // ImGui_ImplVulkan_NewFrame();
+    // ImGui_ImplSDL3_NewFrame();
+    // ImGui::NewFrame();
 
-    m_widget_manager->RenderWidgets();
+    // m_widget_manager->RenderWidgets();
 
-    ImGui::Render();
+    // ImGui::Render();
 
     uint64_t start = SDL_GetTicksNS();
 

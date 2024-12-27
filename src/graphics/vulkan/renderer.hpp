@@ -96,6 +96,8 @@ private:
   void DrawBackground(VkCommandBuffer cmd);
   void DrawGeometry(VkCommandBuffer cmd);
 
+  void ResizeSwapchain();
+
 private:
   std::shared_ptr<Window> m_window;
 
@@ -130,7 +132,7 @@ private:
   int m_current_bg_effect = 0;
   std::vector<ComputeEffect> m_bg_effects;
 
-  ImGui m_imgui;
+  // ImGui m_imgui;
 
   VkPipelineLayout m_triangle_pipeline_layout;
   VkPipeline m_triangle_pipeline;
