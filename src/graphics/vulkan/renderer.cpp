@@ -249,7 +249,7 @@ Renderer::Renderer(std::shared_ptr<Window> window) : m_window{window} {
 
   InitCommands();
   InitSyncStructures();
-  InitDescriptors();
+  // InitDescriptors();
   InitPipelines();
   InitDefaultData();
 
@@ -315,7 +315,8 @@ void Renderer::Draw() {
   VkImageView view = res.view;
 
   VkCommandBuffer cmd = frame.command_buffer;
-  VK_CHECK(vkResetCommandBuffer(cmd, 0));
+  // VK_CHECK(vkResetCommandBuffer(cmd, 0));
+  VK_CHECK(vkResetCommandPool(m_device.GetDevice(), frame.command_pool, 0));
 
   VkCommandBufferBeginInfo cmd_begin_info{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
   cmd_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -328,12 +329,20 @@ void Renderer::Draw() {
   // TransitionImage(cmd, m_draw_image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
   // DrawBackground(cmd);
 
-  TransitionImage(cmd, m_draw_image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-
+  TransitionImage(cmd, ImageTransitionBarrier(VK_PIPELINE_STAGE_2_NONE, VK_ACCESS_2_NONE,
+                                              VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                                              VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+                                              VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL, m_draw_image.image));
   DrawGeometry(cmd);
 
-  TransitionImage(cmd, m_draw_image.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                  VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+  TransitionImage(cmd,
+                  ImageTransitionBarrier(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                                         VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                         VK_ACCESS_2_TRANSFER_READ_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                                         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_draw_image.image));
+
+  // TransitionImage(cmd, m_draw_image.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+  //                 VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
   TransitionImage(cmd, image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
   CloneImage(cmd, m_draw_image.image, image, m_draw_extent, m_draw_extent);
@@ -393,7 +402,7 @@ void Renderer::DrawBackground(VkCommandBuffer cmd) {
 
 void Renderer::InitCommands() {
   VkCommandPoolCreateInfo create_info{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
-  create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+  // create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
   create_info.queueFamilyIndex = m_device.GetGraphicsQueueFamily();
 
   for (size_t i = 0; i < kMaxFramesInFlight; ++i) {
@@ -448,7 +457,7 @@ void Renderer::UpdateDrawImageDescriptors() {
 }
 
 void Renderer::InitPipelines() {
-  InitBackgroundPipelines();
+  // InitBackgroundPipelines();
   InitTrianglePipeline();
   InitTriangleMeshPipeline();
 }
@@ -517,7 +526,7 @@ static std::shared_ptr<ImmSbm_> CreateImmediateSubmissionStructures(Device *devi
   auto sbm = std::make_shared<ImmSbm_>();
 
   VkCommandPoolCreateInfo create_info{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
-  create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+  // create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
   // TODO: dynamic
   create_info.queueFamilyIndex = device->GetTransferQueueFamily();
   VK_CHECK(vkCreateCommandPool(device->GetDevice(), &create_info, nullptr, &sbm->pool));
@@ -539,7 +548,8 @@ void Renderer::SubmitNow(std::function<void(VkCommandBuffer)> f) {
   static thread_local auto imm = CreateImmediateSubmissionStructures(&m_device);
 
   VK_CHECK(vkResetFences(m_device.GetDevice(), 1, &imm->fence));
-  VK_CHECK(vkResetCommandBuffer(imm->cmd, 0));
+  // VK_CHECK(vkResetCommandBuffer(imm->cmd, 0));
+  VK_CHECK(vkResetCommandPool(m_device.GetDevice(), imm->pool, 0));
 
   VkCommandBufferBeginInfo cmd_begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
   cmd_begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -591,8 +601,9 @@ void Renderer::InitTrianglePipeline() {
 }
 
 void Renderer::DrawGeometry(VkCommandBuffer cmd) {
+  VkClearValue clear_value{{0.0f, 0.0f, 0.0f, 1.0f}};
   VkRenderingAttachmentInfo color_attachment =
-      AttachmentInfo(m_draw_image.view, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+      AttachmentInfo(m_draw_image.view, &clear_value, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
   VkRenderingInfo rendering_info{
       .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
@@ -687,6 +698,6 @@ void Renderer::ResizeSwapchain() {
 
   m_draw_extent = {width, height};
   m_draw_image = AllocatedImage{m_device.GetDevice(), m_allocator, m_draw_extent};
-  UpdateDrawImageDescriptors();
+  // UpdateDrawImageDescriptors();
 }
 } // namespace craft::vk

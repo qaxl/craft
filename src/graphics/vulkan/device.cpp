@@ -51,6 +51,8 @@ void Device::SelectPhysicalDevice(std::initializer_list<DeviceExtension> extensi
         VkPhysicalDeviceFeatures2 feats{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &feats2};
         vkGetPhysicalDeviceFeatures2(device, &feats);
 
+        std::cout << "Push Constants Size: " << props.limits.maxPushConstantsSize << std::endl;
+
         for (size_t offset = 0; offset < sizeof(VkPhysicalDeviceFeatures) / sizeof(VkBool32); ++offset) {
           VkBool32 supported = reinterpret_cast<const VkBool32 *>(&feats.features)[offset];
           VkBool32 requested = reinterpret_cast<const VkBool32 *>(&features->base_features.features)[offset];

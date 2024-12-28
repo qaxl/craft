@@ -8,20 +8,14 @@ struct Vertex {
     vec4 pos_and_normal_x;
     vec4 normal_yz_and_uv_xy;
     vec4 color;
-
-    /*
-  Vec<float, 3> position;
-  Vec<float, 3> normal;
-  Vec<float, 2> uv;
-  Vec<float, 4> color;*/
 };
 
-layout (buffer_reference, std430) readonly buffer Buffer{
+layout (buffer_reference, std430) readonly buffer Buffer {
     Vertex vertices[];
 };
 
 layout (push_constant) uniform constants {
-    mat4 world;
+    mat4 proj;
     Buffer vertex_buffer;
 } push_constants;
 

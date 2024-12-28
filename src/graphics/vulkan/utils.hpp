@@ -272,6 +272,46 @@ static void TransitionImage(VkCommandBuffer cmd, VkImage image, VkImageLayout cu
   vkCmdPipelineBarrier2(cmd, &dep_info);
 }
 
+struct ImageTransitionBarrier {
+  VkPipelineStageFlags2 src_stage_mask;
+  VkAccessFlags2 src_access_mask{};
+  VkPipelineStageFlags2 dst_stage_mask;
+  VkAccessFlags2 dst_access_mask{};
+  VkImageLayout old_layout;
+  VkImageLayout new_layout;
+  VkImage image;
+
+  ImageTransitionBarrier(VkPipelineStageFlags2 src_stage_mask, VkAccessFlags2 src_access_mask,
+                         VkPipelineStageFlags2 dst_stage_mask, VkAccessFlags2 dst_access_mask, VkImageLayout old_layout,
+                         VkImageLayout new_layout, VkImage image)
+      : src_stage_mask{src_stage_mask}, src_access_mask{src_access_mask}, dst_stage_mask{dst_stage_mask},
+        dst_access_mask{dst_access_mask}, old_layout{old_layout}, new_layout{new_layout}, image{image} {}
+};
+
+static void TransitionImage(VkCommandBuffer cmd, const ImageTransitionBarrier &barrier) {
+  VkImageMemoryBarrier2 image_barrier{
+      .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+      .srcStageMask = barrier.src_stage_mask,
+      .srcAccessMask = barrier.src_access_mask,
+      .dstStageMask = barrier.dst_stage_mask,
+      .dstAccessMask = barrier.dst_access_mask,
+      .oldLayout = barrier.old_layout,
+      .newLayout = barrier.new_layout,
+      .image = barrier.image,
+  };
+
+  VkImageAspectFlags aspect_mask = (barrier.new_layout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL)
+                                       ? VK_IMAGE_ASPECT_DEPTH_BIT
+                                       : VK_IMAGE_ASPECT_COLOR_BIT;
+  image_barrier.subresourceRange = ImageSubresourceRange(aspect_mask);
+
+  VkDependencyInfo dep_info{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+  dep_info.imageMemoryBarrierCount = 1;
+  dep_info.pImageMemoryBarriers = &image_barrier;
+
+  vkCmdPipelineBarrier2(cmd, &dep_info);
+}
+
 static void CloneImage(VkCommandBuffer cmd, VkImage source, VkImage destination, VkExtent2D source_size,
                        VkExtent2D destination_size) {
   VkImageBlit2 blit_region{VK_STRUCTURE_TYPE_IMAGE_BLIT_2};
