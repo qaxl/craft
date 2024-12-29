@@ -11,13 +11,15 @@ My own custom-built game engine for my own projects. It's not currently not read
 | ----------------------------------------------------- | ------------ |
 | Play as rectangles that shoot each other              | NO           |
 | Implement Vulkan abstractions for most things         | NO           |
-| Use (optionally) Steamworks SDK for P2P Networking    | NO           |
-| Use (optionally) TCP/IP for Server-Client Networking  | NO           |
+
+More features will come, as they will be implemented. I'll try my best listing them all here.
 
 ## Optional Features
 
-Using networking is optional via Steamworks SDK. It's not distributed by default in this repository, and can be instead downloaded from: <https://partner.steamgames.com/>. 
+Using networking is optional via Steamworks SDK. It's not distributed by default in this repository, and can be instead downloaded from: <https://partner.steamgames.com/>.
+
 After downloading you should be able to see the `sdk/` folder inside `steamworks_sdk_xxx`, and you should copy it over to `deps/steamworks/sdk`.
+
 After that you should enable CMake option `BUILD_WITH_STEAMSDK`, such as:
 
 ```sh
@@ -34,9 +36,9 @@ Currently supported platforms are the following:
 | --------- | -------                        |
 | Android   | Planned                        |
 | Linux     | Planned                        |
-| Windows   | Supported; Recommend using W11 |
+| Windows   | Supported                      |
 | macOS     | None                           |
-| i(Pad)OS  | None                           |
+| iOS       | None                           |
 
 If platform is supported, it means that the project should compile and run successfully without any extra steps from this repository.
 
