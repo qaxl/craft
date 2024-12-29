@@ -21,14 +21,24 @@
 namespace craft::vk {
 struct Instance {
   VkInstance instance{};
-  VmaAllocator allocator{};
+  VkSurfaceKHR surface{};
 
   ~Instance() {
+    if (surface)
+      vkDestroySurfaceKHR(instance, surface, nullptr);
+
     if (instance)
       vkDestroyInstance(instance, nullptr);
+  }
+};
 
-    if (allocator)
+struct Allocator {
+  VmaAllocator allocator{};
+
+  ~Allocator() {
+    if (allocator) {
       vmaDestroyAllocator(allocator);
+    }
   }
 };
 
@@ -63,6 +73,18 @@ struct ComputeEffect {
   ComputePushConstants pc;
 };
 
+struct ImmediateSubmit {
+  VkFence fence{};
+  VkCommandBuffer cmd{};
+  VkCommandPool pool{};
+  VkDevice device{};
+
+  ~ImmediateSubmit() {
+    vkDestroyCommandPool(device, pool, nullptr);
+    vkDestroyFence(device, fence, nullptr);
+  }
+};
+
 constexpr const size_t kMaxFramesInFlight = 3;
 constexpr const size_t kMinFramesInFlight = 2;
 
@@ -77,8 +99,8 @@ public:
   // TODO: configurable?
   FrameData &GetCurrentFrame() { return m_frames[m_frame_number++ % kMaxFramesInFlight]; }
 
-  ComputeEffect &GetCurrentEffect() { return m_bg_effects[m_current_bg_effect]; }
-  void SetCurrentEffect(int index) { m_current_bg_effect = index % m_bg_effects.size(); }
+  // ComputeEffect &GetCurrentEffect() { return m_bg_effects[m_current_bg_effect]; }
+  // void SetCurrentEffect(int index) { m_current_bg_effect = index % m_bg_effects.size(); }
 
   void Draw();
   void SubmitNow(std::function<void(VkCommandBuffer)> f);
@@ -94,6 +116,7 @@ private:
   void InitTrianglePipeline();
   void InitTriangleMeshPipeline();
   void InitDefaultData();
+  void InitImmediateSubmit();
 
   void DrawBackground(VkCommandBuffer cmd);
   void DrawGeometry(VkCommandBuffer cmd, AllocatedImage &render_target);
@@ -110,12 +133,13 @@ private:
   Device m_device;
   Swapchain m_swapchain;
 
+  VmaAllocator m_allocator;
+  Allocator m_allocator_raii;
+
   VkSurfaceKHR m_surface;
 
   uint32_t m_frame_number = 0;
   std::array<FrameData, kMaxFramesInFlight> m_frames;
-
-  VmaAllocator m_allocator;
 
   // AllocatedImage m_draw_image;
   VkExtent2D m_draw_extent;
@@ -126,13 +150,13 @@ private:
   VkDescriptorSetLayout m_draw_image_descriptor_layout;
 
   // VkPipeline m_gradient_pipeline;
-  VkPipelineLayout m_gradient_pipeline_layout;
+  // VkPipelineLayout m_gradient_pipeline_layout;
 
   VkPipelineCache m_pipeline_cache;
 
   // Custom backgrounds ;)
-  int m_current_bg_effect = 0;
-  std::vector<ComputeEffect> m_bg_effects;
+  // int m_current_bg_effect = 0;
+  // std::vector<ComputeEffect> m_bg_effects;
 
   // ImGui m_imgui;
 
@@ -143,5 +167,7 @@ private:
   VkPipeline m_triangle_mesh_pipeline;
 
   MeshBuffers m_mesh;
+
+  ImmediateSubmit m_imm;
 };
 } // namespace craft::vk

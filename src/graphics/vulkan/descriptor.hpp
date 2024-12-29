@@ -44,6 +44,14 @@ struct DescriptorAllocator {
 
   VkDescriptorPool pool;
 
+  DescriptorAllocator() {}
+
+  DescriptorAllocator(const DescriptorAllocator &) = delete;
+  DescriptorAllocator(DescriptorAllocator &&) = delete;
+
+  DescriptorAllocator &operator=(const DescriptorAllocator &) = delete;
+  DescriptorAllocator &operator=(DescriptorAllocator &&) = delete;
+
   void InitPool(VkDevice device, uint32_t size, std::span<PoolSizeRatio> ratios) {
     std::vector<VkDescriptorPoolSize> sizes;
     sizes.reserve(ratios.size());

@@ -20,7 +20,7 @@ struct AllocatedImage {
 
   AllocatedImage() {}
 
-  AllocatedImage(VkDevice device, VmaAllocator allocator, VkExtent2D extent) {
+  AllocatedImage(VkDevice device, VmaAllocator allocator, VkExtent2D extent) : device{device}, allocator{allocator} {
     VkExtent3D draw_image_extent{extent.width, extent.height, 1};
     this->format = VK_FORMAT_R16G16B16A16_SFLOAT;
     this->extent = draw_image_extent;
@@ -68,11 +68,15 @@ struct AllocatedImage {
 
   AllocatedImage &operator=(const AllocatedImage &) = delete;
   AllocatedImage &operator=(AllocatedImage &&other) {
+    this->~AllocatedImage();
+
     this->image = other.image;
     this->view = other.view;
     this->allocation = other.allocation;
     this->extent = other.extent;
     this->format = other.format;
+    this->device = other.device;
+    this->allocator = other.allocator;
 
     other.image = nullptr;
     other.view = nullptr;

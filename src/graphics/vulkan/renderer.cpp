@@ -30,7 +30,6 @@ static std::vector<const char *> CheckInstanceExtensions(std::initializer_list<I
 
   for (uint32_t i = 0; i < sdl_ext_count; ++i) {
     exts.emplace_back(InstanceExtension{sdl_exts[i], true});
-    std::cout << "SDL wants Vulkan instance-level extension enabled: " << sdl_exts[i] << std::endl;
   }
 
   std::set<std::string_view> required_exts;
@@ -45,14 +44,10 @@ static std::vector<const char *> CheckInstanceExtensions(std::initializer_list<I
 
   std::set<std::string_view> enabled_required_exts;
   for (const auto &available_ext : available_exts) {
-    std::cout << "Found an instance-level extension: " << available_ext.extensionName << std::endl;
-
     auto it = std::find_if(exts.begin(), exts.end(), [&](const InstanceExtension &ext) {
       return strcmp(ext.name, available_ext.extensionName) == 0;
     });
     if (it != exts.end()) {
-      std::cout << std::boolalpha << "Enabling wanted extension (required = " << it->required << "): " << it->name
-                << std::endl;
       enabled_exts.push_back(it->name);
       if (it->required) {
         enabled_required_exts.insert(it->name);
@@ -85,12 +80,9 @@ static std::vector<const char *> CheckInstanceLayers(std::initializer_list<const
   enabled_layers.reserve(layers.size());
 
   for (const auto &available_layer : available_layers) {
-    std::cout << "Found an instance-level layer: " << available_layer.layerName << std::endl;
-
     auto it = std::find_if(layers.begin(), layers.end(),
                            [&](const char *name) { return strcmp(name, available_layer.layerName) == 0; });
     if (it != layers.end()) {
-      std::cout << "Enabling wanted layer: " << *it << std::endl;
       enabled_layers.push_back(*it);
     }
   }
@@ -181,9 +173,10 @@ static VkInstance CreateInstance(std::shared_ptr<Window> window, std::initialize
                                VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT |
                                VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT;
   messenger_info.pfnUserCallback = VkDebugMessageCallback;
-#endif
 
   create_info.pNext = &messenger_info;
+#endif
+
   create_info.pApplicationInfo = &app_info;
   create_info.enabledExtensionCount = exts.size();
   create_info.ppEnabledExtensionNames = exts.data();
@@ -204,17 +197,19 @@ static VkInstance CreateInstance(std::shared_ptr<Window> window, std::initialize
 Renderer::Renderer(std::shared_ptr<Window> window) : m_window{window} {
   std::vector<const char *> enabled_exts;
 
-  m_instance =
-      CreateInstance(window, {{VK_EXT_DEBUG_UTILS_EXTENSION_NAME, false}, {VK_EXT_ROBUSTNESS_2_EXTENSION_NAME, false}},
-                     {/* use vulkan configurator, thank you :) */}, "craft app", m_messenger);
+  m_instance = CreateInstance(window,
+                              {
+#ifndef NDEBUG
+                                  {VK_EXT_DEBUG_UTILS_EXTENSION_NAME, false},
+#endif
+                                  {VK_EXT_ROBUSTNESS_2_EXTENSION_NAME, false}},
+                              {/* use vulkan configurator, thank you :) */}, "craft app", m_messenger);
   // This is just to make sure that the VkInstance gets destroyed the last.
   m_instance_raii.instance = m_instance;
 
   DeviceFeatures features{};
   features.vk_1_3_features.dynamicRendering = true;
   features.vk_1_3_features.synchronization2 = true;
-  features.vk_1_2_features.bufferDeviceAddress = true;
-  // ImGui requirement
   features.vk_1_2_features.bufferDeviceAddress = true;
 
   m_device = Device{m_instance, {DeviceExtension{VK_KHR_SWAPCHAIN_EXTENSION_NAME}}, &features};
@@ -229,7 +224,7 @@ Renderer::Renderer(std::shared_ptr<Window> window) : m_window{window} {
   allocator_info.pVulkanFunctions = &funcs;
 
   vmaCreateAllocator(&allocator_info, &m_allocator);
-  m_instance_raii.allocator = m_allocator;
+  m_allocator_raii.allocator = m_allocator;
 
   auto [width, height] = window->GetSize();
   VkExtent2D extent{width, height};
@@ -246,6 +241,8 @@ Renderer::Renderer(std::shared_ptr<Window> window) : m_window{window} {
                           caps.currentTransform,
                           m_device.GetOptimalPresentMode(m_surface),
                           m_device.GetOptimalSurfaceFormat(m_surface)};
+  m_instance_raii.surface = m_surface;
+
   for (auto &frame : m_frames) {
     frame.render_target = AllocatedImage{m_device.GetDevice(), m_allocator, m_draw_extent};
   }
@@ -271,13 +268,13 @@ Renderer::~Renderer() {
   vkDestroyPipelineLayout(m_device.GetDevice(), m_triangle_pipeline_layout, nullptr);
   vkDestroyPipeline(m_device.GetDevice(), m_triangle_pipeline, nullptr);
 
-  vkDestroyPipelineLayout(m_device.GetDevice(), m_gradient_pipeline_layout, nullptr);
-  for (auto &bg_effect : m_bg_effects) {
-    vkDestroyPipeline(m_device.GetDevice(), bg_effect.pipeline, nullptr);
-  }
+  // vkDestroyPipelineLayout(m_device.GetDevice(), m_gradient_pipeline_layout, nullptr);
+  // for (auto &bg_effect : m_bg_effects) {
+  //   vkDestroyPipeline(m_device.GetDevice(), bg_effect.pipeline, nullptr);
+  // }
 
-  m_descriptor_allocator.DestroyPool(m_device.GetDevice());
-  vkDestroyDescriptorSetLayout(m_device.GetDevice(), m_draw_image_descriptor_layout, nullptr);
+  // m_descriptor_allocator.DestroyPool(m_device.GetDevice());
+  // vkDestroyDescriptorSetLayout(m_device.GetDevice(), m_draw_image_descriptor_layout, nullptr);
 
   for (auto &frame : m_frames) {
     vkDestroyFence(m_device.GetDevice(), frame.fe_render, nullptr);
@@ -287,8 +284,7 @@ Renderer::~Renderer() {
     vkDestroyCommandPool(m_device.GetDevice(), frame.command_pool, nullptr);
   }
 
-  vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
-  vkDestroyDevice(m_device.GetDevice(), nullptr);
+  // vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
 
 #ifndef NDEBUG
   if (m_messenger) {
@@ -393,16 +389,16 @@ void Renderer::DrawBackground(VkCommandBuffer cmd) {
   // VkImageSubresourceRange clear_range = ImageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
   // vkCmdClearColorImage(cmd, m_draw_image.image, VK_IMAGE_LAYOUT_GENERAL, &clear_value, 1, &clear_range);
 
-  ComputeEffect &effect = m_bg_effects[m_current_bg_effect];
+  // ComputeEffect &effect = m_bg_effects[m_current_bg_effect];
 
-  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, effect.pipeline);
-  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_gradient_pipeline_layout, 0, 1,
-                          &m_draw_image_descriptors, 0, nullptr);
+  // vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, effect.pipeline);
+  // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_gradient_pipeline_layout, 0, 1,
+  //                         &m_draw_image_descriptors, 0, nullptr);
 
-  vkCmdPushConstants(cmd, m_gradient_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants),
-                     &effect.pc);
+  // vkCmdPushConstants(cmd, m_gradient_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants),
+  //                    &effect.pc);
 
-  vkCmdDispatch(cmd, std::ceil(m_draw_extent.width / 16.0), std::ceil(m_draw_extent.height / 16.0), 1);
+  // vkCmdDispatch(cmd, std::ceil(m_draw_extent.width / 16.0), std::ceil(m_draw_extent.height / 16.0), 1);
 }
 
 void Renderer::InitCommands() {
@@ -438,16 +434,16 @@ void Renderer::InitSyncStructures() {
 }
 
 void Renderer::InitDescriptors() {
-  std::array<DescriptorAllocator::PoolSizeRatio, 1> sizes{
-      DescriptorAllocator::PoolSizeRatio{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1}};
-  m_descriptor_allocator.InitPool(m_device.GetDevice(), 10, sizes);
+  // std::array<DescriptorAllocator::PoolSizeRatio, 1> sizes{
+  //     DescriptorAllocator::PoolSizeRatio{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1}};
+  // m_descriptor_allocator.InitPool(m_device.GetDevice(), 10, sizes);
 
-  DescriptorLayoutBuilder builder;
-  builder.AddBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
-  m_draw_image_descriptor_layout = builder.Build(m_device.GetDevice(), VK_SHADER_STAGE_COMPUTE_BIT);
-  m_draw_image_descriptors = m_descriptor_allocator.Allocate(m_device.GetDevice(), m_draw_image_descriptor_layout);
+  // DescriptorLayoutBuilder builder;
+  // builder.AddBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+  // m_draw_image_descriptor_layout = builder.Build(m_device.GetDevice(), VK_SHADER_STAGE_COMPUTE_BIT);
+  // m_draw_image_descriptors = m_descriptor_allocator.Allocate(m_device.GetDevice(), m_draw_image_descriptor_layout);
 
-  UpdateDrawImageDescriptors();
+  // UpdateDrawImageDescriptors();
 }
 
 void Renderer::UpdateDrawImageDescriptors() {
@@ -472,109 +468,97 @@ void Renderer::InitPipelines() {
 }
 
 void Renderer::InitBackgroundPipelines() {
-  VkPipelineLayoutCreateInfo compute_layout{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-  compute_layout.setLayoutCount = 1;
-  compute_layout.pSetLayouts = &m_draw_image_descriptor_layout;
+  // VkPipelineLayoutCreateInfo compute_layout{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+  // compute_layout.setLayoutCount = 1;
+  // compute_layout.pSetLayouts = &m_draw_image_descriptor_layout;
 
-  VkPushConstantRange push_constants{};
-  push_constants.size = sizeof(ComputePushConstants);
-  push_constants.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  // VkPushConstantRange push_constants{};
+  // push_constants.size = sizeof(ComputePushConstants);
+  // push_constants.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
-  compute_layout.pushConstantRangeCount = 1;
-  compute_layout.pPushConstantRanges = &push_constants;
+  // compute_layout.pushConstantRangeCount = 1;
+  // compute_layout.pPushConstantRanges = &push_constants;
 
-  VK_CHECK(vkCreatePipelineLayout(m_device.GetDevice(), &compute_layout, nullptr, &m_gradient_pipeline_layout));
+  // VK_CHECK(vkCreatePipelineLayout(m_device.GetDevice(), &compute_layout, nullptr, &m_gradient_pipeline_layout));
 
-  auto gradient_shader = LoadShaderModule("../shaders/gradient.comp.spv", m_device.GetDevice());
-  auto sky_shader = LoadShaderModule("../shaders/sky.comp.spv", m_device.GetDevice());
-  if (!gradient_shader || !sky_shader) {
-    RuntimeError::Throw("Error occurred while trying to load compute shader.");
-  }
+  // auto gradient_shader = LoadShaderModule("../shaders/gradient.comp.spv", m_device.GetDevice());
+  // auto sky_shader = LoadShaderModule("../shaders/sky.comp.spv", m_device.GetDevice());
+  // if (!gradient_shader || !sky_shader) {
+  //   RuntimeError::Throw("Error occurred while trying to load compute shader.");
+  // }
 
-  VkPipelineShaderStageCreateInfo stage_info{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
-  stage_info.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-  stage_info.module = gradient_shader.value();
-  stage_info.pName = "main";
+  // VkPipelineShaderStageCreateInfo stage_info{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+  // stage_info.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+  // stage_info.module = gradient_shader.value();
+  // stage_info.pName = "main";
 
-  VkComputePipelineCreateInfo compute_pipeline_info{VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
-  compute_pipeline_info.layout = m_gradient_pipeline_layout;
-  compute_pipeline_info.stage = stage_info;
+  // VkComputePipelineCreateInfo compute_pipeline_info{VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+  // compute_pipeline_info.layout = m_gradient_pipeline_layout;
+  // compute_pipeline_info.stage = stage_info;
 
-  ComputeEffect gradient{.name = "Gradient",
-                         .layout = m_gradient_pipeline_layout,
-                         .pc = {{Vec<float, 4>{1.f, 0.f, 0.f, 1.f}, {0.f, 0.f, 1.f, 1.f}}}};
+  // ComputeEffect gradient{.name = "Gradient",
+  //                        .layout = m_gradient_pipeline_layout,
+  //                        .pc = {{Vec<float, 4>{1.f, 0.f, 0.f, 1.f}, {0.f, 0.f, 1.f, 1.f}}}};
 
-  ComputeEffect sky{
-      .name = "Sky", .layout = m_gradient_pipeline_layout, .pc = {{Vec<float, 4>{0.1f, 0.2f, 0.4f, 0.97f}}}};
+  // ComputeEffect sky{
+  //     .name = "Sky", .layout = m_gradient_pipeline_layout, .pc = {{Vec<float, 4>{0.1f, 0.2f, 0.4f, 0.97f}}}};
 
-  VK_CHECK(
-      vkCreateComputePipelines(m_device.GetDevice(), nullptr, 1, &compute_pipeline_info, nullptr, &gradient.pipeline));
-  vkDestroyShaderModule(m_device.GetDevice(), compute_pipeline_info.stage.module, nullptr);
+  // VK_CHECK(
+  //     vkCreateComputePipelines(m_device.GetDevice(), nullptr, 1, &compute_pipeline_info, nullptr,
+  //     &gradient.pipeline));
+  // vkDestroyShaderModule(m_device.GetDevice(), compute_pipeline_info.stage.module, nullptr);
 
-  compute_pipeline_info.stage.module = sky_shader.value();
-  VK_CHECK(vkCreateComputePipelines(m_device.GetDevice(), nullptr, 1, &compute_pipeline_info, nullptr, &sky.pipeline));
-  vkDestroyShaderModule(m_device.GetDevice(), compute_pipeline_info.stage.module, nullptr);
+  // compute_pipeline_info.stage.module = sky_shader.value();
+  // VK_CHECK(vkCreateComputePipelines(m_device.GetDevice(), nullptr, 1, &compute_pipeline_info, nullptr,
+  // &sky.pipeline)); vkDestroyShaderModule(m_device.GetDevice(), compute_pipeline_info.stage.module, nullptr);
 
-  m_bg_effects.push_back(gradient);
-  m_bg_effects.push_back(sky);
+  // m_bg_effects.push_back(gradient);
+  // m_bg_effects.push_back(sky);
 }
 
-struct ImmSbm_ {
-  VkFence fence;
-  VkCommandBuffer cmd;
-  VkCommandPool pool;
-  VkDevice device;
-
-  ~ImmSbm_() { // TODO: this most likely won't work because this is in static program memory which gets destroyed last.
-    vkDestroyCommandPool(device, pool, nullptr);
-    vkDestroyFence(device, fence, nullptr);
-  }
-};
-
-static std::shared_ptr<ImmSbm_> CreateImmediateSubmissionStructures(Device *device) {
-  auto sbm = std::make_shared<ImmSbm_>();
-
+void Renderer::InitImmediateSubmit() {
   VkCommandPoolCreateInfo create_info{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
   // create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
   // TODO: dynamic
-  create_info.queueFamilyIndex = device->GetTransferQueueFamily();
-  VK_CHECK(vkCreateCommandPool(device->GetDevice(), &create_info, nullptr, &sbm->pool));
+  create_info.queueFamilyIndex = m_device.GetTransferQueueFamily();
+  VK_CHECK(vkCreateCommandPool(m_device.GetDevice(), &create_info, nullptr, &m_imm.pool));
 
   VkCommandBufferAllocateInfo alloc_info{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
-  alloc_info.commandPool = sbm->pool;
+  alloc_info.commandPool = m_imm.pool;
   alloc_info.commandBufferCount = 1;
   alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 
-  VK_CHECK(vkAllocateCommandBuffers(device->GetDevice(), &alloc_info, &sbm->cmd));
+  VK_CHECK(vkAllocateCommandBuffers(m_device.GetDevice(), &alloc_info, &m_imm.cmd));
 
   VkFenceCreateInfo fence_info{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, nullptr, VK_FENCE_CREATE_SIGNALED_BIT};
-  VK_CHECK(vkCreateFence(device->GetDevice(), &fence_info, nullptr, &sbm->fence));
+  VK_CHECK(vkCreateFence(m_device.GetDevice(), &fence_info, nullptr, &m_imm.fence));
 
-  return sbm;
+  m_imm.device = m_device.GetDevice();
 }
 
 void Renderer::SubmitNow(std::function<void(VkCommandBuffer)> f) {
-  static thread_local auto imm = CreateImmediateSubmissionStructures(&m_device);
+  if (!m_imm.device) {
+    InitImmediateSubmit();
+  }
 
-  VK_CHECK(vkResetFences(m_device.GetDevice(), 1, &imm->fence));
-  // VK_CHECK(vkResetCommandBuffer(imm->cmd, 0));
-  VK_CHECK(vkResetCommandPool(m_device.GetDevice(), imm->pool, 0));
+  VK_CHECK(vkResetFences(m_device.GetDevice(), 1, &m_imm.fence));
+  VK_CHECK(vkResetCommandPool(m_device.GetDevice(), m_imm.pool, 0));
 
   VkCommandBufferBeginInfo cmd_begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
   cmd_begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
-  VK_CHECK(vkBeginCommandBuffer(imm->cmd, &cmd_begin));
+  VK_CHECK(vkBeginCommandBuffer(m_imm.cmd, &cmd_begin));
 
-  f(imm->cmd);
+  f(m_imm.cmd);
 
-  VK_CHECK(vkEndCommandBuffer(imm->cmd));
+  VK_CHECK(vkEndCommandBuffer(m_imm.cmd));
 
   VkCommandBufferSubmitInfo cmd_info{VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
-  cmd_info.commandBuffer = imm->cmd;
+  cmd_info.commandBuffer = m_imm.cmd;
   VkSubmitInfo2 submit = SubmitInfo(&cmd_info, nullptr, nullptr);
 
-  VK_CHECK(vkQueueSubmit2(m_device.GetTransferQueue(), 1, &submit, imm->fence));
-  VK_CHECK(vkWaitForFences(m_device.GetDevice(), 1, &imm->fence, VK_TRUE, 1000'000'000));
+  VK_CHECK(vkQueueSubmit2(m_device.GetTransferQueue(), 1, &submit, m_imm.fence));
+  VK_CHECK(vkWaitForFences(m_device.GetDevice(), 1, &m_imm.fence, VK_TRUE, 1000'000'000));
 }
 
 void Renderer::CreateDrawImage(VkExtent2D extent) {}

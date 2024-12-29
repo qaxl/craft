@@ -24,16 +24,16 @@
 namespace craft::vk {
 static constexpr std::string_view VkResultToStr(VkResult result);
 
-static constexpr void CheckResult(VkResult result,
+static constexpr void CheckResult(VkResult result
 #ifndef NDEBUG
+                                  ,
                                   std::source_location location = std::source_location::current()
 #endif
 ) {
   if (result != VK_SUCCESS) {
     RuntimeError::SetErrorString(std::format("vulkan error at {}@{}:{}: {}",
 #ifdef NDEBUG
-                                             "no", "debug",
-                                             "info"
+                                             "no", "debug", "info",
 #else
                                              location.file_name(), location.function_name(), location.line(),
 #endif
