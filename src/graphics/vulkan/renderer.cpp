@@ -235,6 +235,7 @@ Renderer::Renderer(std::shared_ptr<Window> window) : m_window{window} {
   VkExtent2D extent{width, height};
 
   m_surface = m_window->CreateSurface(m_instance);
+  m_draw_extent = {width, height};
 
   VkSurfaceCapabilitiesKHR caps;
   vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_device.GetPhysicalDevice(), m_surface, &caps);
@@ -245,7 +246,9 @@ Renderer::Renderer(std::shared_ptr<Window> window) : m_window{window} {
                           caps.currentTransform,
                           m_device.GetOptimalPresentMode(m_surface),
                           m_device.GetOptimalSurfaceFormat(m_surface)};
-  m_draw_image = AllocatedImage{m_device.GetDevice(), m_allocator, extent};
+  for (auto &frame : m_frames) {
+    frame.render_target = AllocatedImage{m_device.GetDevice(), m_allocator, m_draw_extent};
+  }
 
   InitCommands();
   InitSyncStructures();
@@ -321,36 +324,38 @@ void Renderer::Draw() {
   VkCommandBufferBeginInfo cmd_begin_info{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
   cmd_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
-  m_draw_extent.width = m_draw_image.extent.width;
-  m_draw_extent.height = m_draw_image.extent.height;
+  m_draw_extent.width = frame.render_target.extent.width;
+  m_draw_extent.height = frame.render_target.extent.height;
 
   VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
 
-  // TransitionImage(cmd, m_draw_image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+  // TransitionImage(cmd, m_draw_image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
   // DrawBackground(cmd);
 
-  TransitionImage(cmd, ImageTransitionBarrier(VK_PIPELINE_STAGE_2_NONE, VK_ACCESS_2_NONE,
-                                              VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-                                              VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
-                                              VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL, m_draw_image.image));
-  DrawGeometry(cmd);
+  TransitionImage(cmd, ImageTransitionBarrier(
+                           VK_PIPELINE_STAGE_2_BLIT_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT,
+                           VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR,
+                           VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+                           VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL, frame.render_target.image));
+  DrawGeometry(cmd, frame.render_target);
 
-  TransitionImage(cmd,
-                  ImageTransitionBarrier(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                                         VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                                         VK_ACCESS_2_TRANSFER_READ_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                                         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_draw_image.image));
+  // TransitionImage(cmd,
+  //                 ImageTransitionBarrier(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+  //                                        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+  //                                        VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_TRANSFER_READ_BIT,
+  //                                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+  //                                        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_draw_image.image));
 
-  // TransitionImage(cmd, m_draw_image.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-  //                 VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+  TransitionImage(cmd, frame.render_target.image, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
+                  VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
   TransitionImage(cmd, image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
-  CloneImage(cmd, m_draw_image.image, image, m_draw_extent, m_draw_extent);
-  TransitionImage(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+  CloneImage(cmd, frame.render_target.image, image, m_draw_extent, m_draw_extent);
+  TransitionImage(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
   // m_imgui.Draw(cmd, view, m_draw_extent);
 
-  TransitionImage(cmd, image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+  // TransitionImage(cmd, image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
   VK_CHECK(vkEndCommandBuffer(cmd));
 
@@ -414,6 +419,9 @@ void Renderer::InitCommands() {
     alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 
     VK_CHECK(vkAllocateCommandBuffers(m_device.GetDevice(), &alloc_info, &m_frames[i].command_buffer));
+
+    // Yeah we can add the render_targets here, why not?
+    m_frames[i].render_target = AllocatedImage{m_device.GetDevice(), m_allocator, m_draw_extent};
   }
 }
 
@@ -443,17 +451,18 @@ void Renderer::InitDescriptors() {
 }
 
 void Renderer::UpdateDrawImageDescriptors() {
-  VkDescriptorImageInfo info{};
-  info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-  info.imageView = m_draw_image.view;
+  throw "no";
+  // VkDescriptorImageInfo info{};
+  // info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+  // info.imageView = m_draw_image.view;
 
-  VkWriteDescriptorSet draw_image_write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-  draw_image_write.dstSet = m_draw_image_descriptors;
-  draw_image_write.descriptorCount = 1;
-  draw_image_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-  draw_image_write.pImageInfo = &info;
+  // VkWriteDescriptorSet draw_image_write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+  // draw_image_write.dstSet = m_draw_image_descriptors;
+  // draw_image_write.descriptorCount = 1;
+  // draw_image_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+  // draw_image_write.pImageInfo = &info;
 
-  vkUpdateDescriptorSets(m_device.GetDevice(), 1, &draw_image_write, 0, nullptr);
+  // vkUpdateDescriptorSets(m_device.GetDevice(), 1, &draw_image_write, 0, nullptr);
 }
 
 void Renderer::InitPipelines() {
@@ -592,7 +601,7 @@ void Renderer::InitTrianglePipeline() {
   builder.DisableBlending();
   builder.DisableDepthTest();
 
-  builder.SetColorAttachmentFormat(m_draw_image.format);
+  builder.SetColorAttachmentFormat(m_frames[0].render_target.format);
 
   m_triangle_pipeline = builder.Build(m_device.GetDevice());
 
@@ -600,10 +609,10 @@ void Renderer::InitTrianglePipeline() {
   vkDestroyShaderModule(m_device.GetDevice(), *triangle_fragment, nullptr);
 }
 
-void Renderer::DrawGeometry(VkCommandBuffer cmd) {
+void Renderer::DrawGeometry(VkCommandBuffer cmd, AllocatedImage &render_target) {
   VkClearValue clear_value{{0.0f, 0.0f, 0.0f, 1.0f}};
   VkRenderingAttachmentInfo color_attachment =
-      AttachmentInfo(m_draw_image.view, &clear_value, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+      AttachmentInfo(render_target.view, &clear_value, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
   VkRenderingInfo rendering_info{
       .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
@@ -672,7 +681,7 @@ void Renderer::InitTriangleMeshPipeline() {
   builder.DisableBlending();
   builder.DisableDepthTest();
 
-  builder.SetColorAttachmentFormat(m_draw_image.format);
+  builder.SetColorAttachmentFormat(m_frames[0].render_target.format);
 
   m_triangle_mesh_pipeline = builder.Build(m_device.GetDevice());
 
@@ -697,7 +706,10 @@ void Renderer::ResizeSwapchain() {
   m_swapchain.Resize(width, height);
 
   m_draw_extent = {width, height};
-  m_draw_image = AllocatedImage{m_device.GetDevice(), m_allocator, m_draw_extent};
+
+  for (auto &frame : m_frames) {
+    frame.render_target = AllocatedImage{m_device.GetDevice(), m_allocator, m_draw_extent};
+  }
   // UpdateDrawImageDescriptors();
 }
 } // namespace craft::vk

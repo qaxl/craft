@@ -46,6 +46,8 @@ struct FrameData {
   VkSemaphore sp_swapchain;
   VkSemaphore sp_render;
   VkFence fe_render;
+
+  AllocatedImage render_target;
 };
 
 struct ComputePushConstants {
@@ -94,7 +96,7 @@ private:
   void InitDefaultData();
 
   void DrawBackground(VkCommandBuffer cmd);
-  void DrawGeometry(VkCommandBuffer cmd);
+  void DrawGeometry(VkCommandBuffer cmd, AllocatedImage &render_target);
 
   void ResizeSwapchain();
 
@@ -115,7 +117,7 @@ private:
 
   VmaAllocator m_allocator;
 
-  AllocatedImage m_draw_image;
+  // AllocatedImage m_draw_image;
   VkExtent2D m_draw_extent;
 
   DescriptorAllocator m_descriptor_allocator;
