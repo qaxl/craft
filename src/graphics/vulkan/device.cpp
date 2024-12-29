@@ -242,6 +242,7 @@ VkPresentModeKHR Device::GetOptimalPresentMode(VkSurfaceKHR surface, bool vsync)
       return VK_PRESENT_MODE_FIFO_RELAXED_KHR;
     }
   } else {
+    // Yes, this is VSync. But do we want to use it when we're using VSync? Not really (atleast in our use case).
     if (PresentModeSupported(VK_PRESENT_MODE_MAILBOX_KHR)) {
       return VK_PRESENT_MODE_MAILBOX_KHR;
     }

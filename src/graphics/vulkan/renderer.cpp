@@ -239,7 +239,7 @@ Renderer::Renderer(std::shared_ptr<Window> window) : m_window{window} {
                           m_surface,
                           extent,
                           caps.currentTransform,
-                          m_device.GetOptimalPresentMode(m_surface),
+                          m_device.GetOptimalPresentMode(m_surface, false),
                           m_device.GetOptimalSurfaceFormat(m_surface)};
   m_instance_raii.surface = m_surface;
 
@@ -325,33 +325,26 @@ void Renderer::Draw() {
 
   VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
 
-  // TransitionImage(cmd, m_draw_image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
-  // DrawBackground(cmd);
-
-  TransitionImage(cmd, ImageTransitionBarrier(
-                           VK_PIPELINE_STAGE_2_BLIT_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT,
-                           VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR,
-                           VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-                           VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL, frame.render_target.image));
+  TransitionImage(cmd, ImageTransitionBarrier(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, VK_ACCESS_2_NONE,
+                                              VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                                              VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+                                              VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL, frame.render_target.image));
   DrawGeometry(cmd, frame.render_target);
 
-  // TransitionImage(cmd,
-  //                 ImageTransitionBarrier(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-  //                                        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-  //                                        VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_TRANSFER_READ_BIT,
-  //                                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-  //                                        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_draw_image.image));
-
-  TransitionImage(cmd, frame.render_target.image, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
-                  VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-  TransitionImage(cmd, image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+  TransitionImage(cmd, ImageTransitionBarrier(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                                              VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                                              VK_ACCESS_2_TRANSFER_READ_BIT, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
+                                              VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, frame.render_target.image));
+  TransitionImage(cmd, ImageTransitionBarrier(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                                              VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                                              VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+                                              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, image));
 
   CloneImage(cmd, frame.render_target.image, image, m_draw_extent, m_draw_extent);
-  TransitionImage(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
-
-  // m_imgui.Draw(cmd, view, m_draw_extent);
-
-  // TransitionImage(cmd, image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+  TransitionImage(cmd,
+                  ImageTransitionBarrier(VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                                         VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT,
+                                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, image));
 
   VK_CHECK(vkEndCommandBuffer(cmd));
 
@@ -382,28 +375,10 @@ void Renderer::Draw() {
   }
 }
 
-void Renderer::DrawBackground(VkCommandBuffer cmd) {
-  // float flash = std::abs(std::sin(m_frame_number / 120.f));
-  // VkClearColorValue clear_value{{0.f, 0.f, flash, 1.f}};
-
-  // VkImageSubresourceRange clear_range = ImageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
-  // vkCmdClearColorImage(cmd, m_draw_image.image, VK_IMAGE_LAYOUT_GENERAL, &clear_value, 1, &clear_range);
-
-  // ComputeEffect &effect = m_bg_effects[m_current_bg_effect];
-
-  // vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, effect.pipeline);
-  // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_gradient_pipeline_layout, 0, 1,
-  //                         &m_draw_image_descriptors, 0, nullptr);
-
-  // vkCmdPushConstants(cmd, m_gradient_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants),
-  //                    &effect.pc);
-
-  // vkCmdDispatch(cmd, std::ceil(m_draw_extent.width / 16.0), std::ceil(m_draw_extent.height / 16.0), 1);
-}
+void Renderer::DrawBackground(VkCommandBuffer cmd) {}
 
 void Renderer::InitCommands() {
   VkCommandPoolCreateInfo create_info{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
-  // create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
   create_info.queueFamilyIndex = m_device.GetGraphicsQueueFamily();
 
   for (size_t i = 0; i < kMaxFramesInFlight; ++i) {
@@ -416,7 +391,7 @@ void Renderer::InitCommands() {
 
     VK_CHECK(vkAllocateCommandBuffers(m_device.GetDevice(), &alloc_info, &m_frames[i].command_buffer));
 
-    // Yeah we can add the render_targets here, why not?
+    // TODO: Yeah we can add the render_targets here, why not?
     m_frames[i].render_target = AllocatedImage{m_device.GetDevice(), m_allocator, m_draw_extent};
   }
 }
@@ -433,88 +408,16 @@ void Renderer::InitSyncStructures() {
   }
 }
 
-void Renderer::InitDescriptors() {
-  // std::array<DescriptorAllocator::PoolSizeRatio, 1> sizes{
-  //     DescriptorAllocator::PoolSizeRatio{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1}};
-  // m_descriptor_allocator.InitPool(m_device.GetDevice(), 10, sizes);
+void Renderer::InitDescriptors() {}
 
-  // DescriptorLayoutBuilder builder;
-  // builder.AddBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
-  // m_draw_image_descriptor_layout = builder.Build(m_device.GetDevice(), VK_SHADER_STAGE_COMPUTE_BIT);
-  // m_draw_image_descriptors = m_descriptor_allocator.Allocate(m_device.GetDevice(), m_draw_image_descriptor_layout);
-
-  // UpdateDrawImageDescriptors();
-}
-
-void Renderer::UpdateDrawImageDescriptors() {
-  throw "no";
-  // VkDescriptorImageInfo info{};
-  // info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-  // info.imageView = m_draw_image.view;
-
-  // VkWriteDescriptorSet draw_image_write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-  // draw_image_write.dstSet = m_draw_image_descriptors;
-  // draw_image_write.descriptorCount = 1;
-  // draw_image_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-  // draw_image_write.pImageInfo = &info;
-
-  // vkUpdateDescriptorSets(m_device.GetDevice(), 1, &draw_image_write, 0, nullptr);
-}
+void Renderer::UpdateDrawImageDescriptors() { throw "no"; }
 
 void Renderer::InitPipelines() {
-  // InitBackgroundPipelines();
   InitTrianglePipeline();
   InitTriangleMeshPipeline();
 }
 
-void Renderer::InitBackgroundPipelines() {
-  // VkPipelineLayoutCreateInfo compute_layout{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-  // compute_layout.setLayoutCount = 1;
-  // compute_layout.pSetLayouts = &m_draw_image_descriptor_layout;
-
-  // VkPushConstantRange push_constants{};
-  // push_constants.size = sizeof(ComputePushConstants);
-  // push_constants.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-  // compute_layout.pushConstantRangeCount = 1;
-  // compute_layout.pPushConstantRanges = &push_constants;
-
-  // VK_CHECK(vkCreatePipelineLayout(m_device.GetDevice(), &compute_layout, nullptr, &m_gradient_pipeline_layout));
-
-  // auto gradient_shader = LoadShaderModule("../shaders/gradient.comp.spv", m_device.GetDevice());
-  // auto sky_shader = LoadShaderModule("../shaders/sky.comp.spv", m_device.GetDevice());
-  // if (!gradient_shader || !sky_shader) {
-  //   RuntimeError::Throw("Error occurred while trying to load compute shader.");
-  // }
-
-  // VkPipelineShaderStageCreateInfo stage_info{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
-  // stage_info.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-  // stage_info.module = gradient_shader.value();
-  // stage_info.pName = "main";
-
-  // VkComputePipelineCreateInfo compute_pipeline_info{VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
-  // compute_pipeline_info.layout = m_gradient_pipeline_layout;
-  // compute_pipeline_info.stage = stage_info;
-
-  // ComputeEffect gradient{.name = "Gradient",
-  //                        .layout = m_gradient_pipeline_layout,
-  //                        .pc = {{Vec<float, 4>{1.f, 0.f, 0.f, 1.f}, {0.f, 0.f, 1.f, 1.f}}}};
-
-  // ComputeEffect sky{
-  //     .name = "Sky", .layout = m_gradient_pipeline_layout, .pc = {{Vec<float, 4>{0.1f, 0.2f, 0.4f, 0.97f}}}};
-
-  // VK_CHECK(
-  //     vkCreateComputePipelines(m_device.GetDevice(), nullptr, 1, &compute_pipeline_info, nullptr,
-  //     &gradient.pipeline));
-  // vkDestroyShaderModule(m_device.GetDevice(), compute_pipeline_info.stage.module, nullptr);
-
-  // compute_pipeline_info.stage.module = sky_shader.value();
-  // VK_CHECK(vkCreateComputePipelines(m_device.GetDevice(), nullptr, 1, &compute_pipeline_info, nullptr,
-  // &sky.pipeline)); vkDestroyShaderModule(m_device.GetDevice(), compute_pipeline_info.stage.module, nullptr);
-
-  // m_bg_effects.push_back(gradient);
-  // m_bg_effects.push_back(sky);
-}
+void Renderer::InitBackgroundPipelines() {}
 
 void Renderer::InitImmediateSubmit() {
   VkCommandPoolCreateInfo create_info{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};

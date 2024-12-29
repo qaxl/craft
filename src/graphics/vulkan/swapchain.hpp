@@ -27,6 +27,8 @@ public:
 
   Swapchain &operator=(const Swapchain &) = delete;
   Swapchain &operator=(Swapchain &&other) {
+    this->~Swapchain();
+
     this->m_device = other.m_device;
     this->m_surface = other.m_surface;
     this->m_swapchain = other.m_swapchain;

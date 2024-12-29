@@ -1,10 +1,12 @@
 #include "swapchain.hpp"
+
+#include <volk.h>
+
+#include <iostream>
+#include <utility>
+
 #include "util/error.hpp"
 #include "utils.hpp"
-#include "vulkan/vulkan_core.h"
-
-#include <utility>
-#include <volk.h>
 
 namespace craft::vk {
 Swapchain::Swapchain(VkDevice device, VkSurfaceKHR surface, VkExtent2D extent,
@@ -47,11 +49,11 @@ Swapchain::Swapchain(VkDevice device, VkSurfaceKHR surface, VkExtent2D extent,
 }
 
 Swapchain::~Swapchain() {
-  for (auto view : m_views) {
-    vkDestroyImageView(m_device, view, nullptr);
-  }
-
   if (m_swapchain) {
+    for (auto view : m_views) {
+      vkDestroyImageView(m_device, view, nullptr);
+    }
+
     vkDestroySwapchainKHR(m_device, m_swapchain, nullptr);
     m_swapchain = nullptr;
   }
@@ -59,6 +61,7 @@ Swapchain::~Swapchain() {
 
 AcquiredImage Swapchain::AcquireNextImage(VkSemaphore wait_semaphore, uint64_t wait_time_ns) {
   VkResult res = vkAcquireNextImageKHR(m_device, m_swapchain, wait_time_ns, wait_semaphore, nullptr, &m_current_index);
+
   if (res == VK_SUBOPTIMAL_KHR || res == VK_SUCCESS) {
     return AcquiredImage{res == VK_SUBOPTIMAL_KHR, m_images[m_current_index], m_views[m_current_index]};
   } else if (res == VK_TIMEOUT) {
