@@ -6,7 +6,7 @@
 #include <algorithm>
 
 namespace craft {
-enum class CameraMovement { Forward, Backward, Left, Right };
+enum class CameraMovement { Forward, Backward, Left, Right, Up, Down };
 
 constexpr float const kYaw = -90.0f;
 constexpr float const kPitch = 0.0f;
@@ -39,6 +39,14 @@ public:
 
     case CameraMovement::Right:
       m_position += m_right * velocity;
+      break;
+
+    case CameraMovement::Up:
+      m_position -= m_up * velocity;
+      break;
+
+    case CameraMovement::Down:
+      m_position += m_up * velocity;
       break;
     }
   }

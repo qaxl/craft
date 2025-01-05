@@ -169,6 +169,13 @@ bool App::Run() {
       m_camera.ProcessKeyboard(CameraMovement::Right, tick_difference * 1e-9);
     }
 
+    if (m_window->IsKeyPressed(KeyboardKey::LCtrl)) {
+      m_camera.ProcessKeyboard(CameraMovement::Down, tick_difference * 1e-9);
+    }
+    if (m_window->IsKeyPressed(KeyboardKey::Space)) {
+      m_camera.ProcessKeyboard(CameraMovement::Up, tick_difference * 1e-9);
+    }
+
     if (m_window->IsKeyPressed(KeyboardKey::KP_0)) {
       m_camera.IncreaseMovementSpeedBy(1.0f);
     }
