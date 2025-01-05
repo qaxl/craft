@@ -105,6 +105,15 @@ struct GraphicsPipelineBuilder {
     depth_stencil_state.minDepthBounds = 0.0f;
   }
 
+  FORCE_INLINE void EnableDepthTest() {
+    depth_stencil_state.depthTestEnable = VK_TRUE;
+    depth_stencil_state.depthWriteEnable = VK_TRUE;
+    depth_stencil_state.depthCompareOp = VK_COMPARE_OP_LESS;
+    depth_stencil_state.depthBoundsTestEnable = VK_FALSE;
+    depth_stencil_state.stencilTestEnable = VK_FALSE;
+    rendering_info.depthAttachmentFormat = VK_FORMAT_D32_SFLOAT;
+  }
+
   VkPipeline Build(VkDevice device) {
     viewport_state.viewportCount = 1;
     viewport_state.scissorCount = 1;

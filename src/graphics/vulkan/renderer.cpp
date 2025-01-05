@@ -11,11 +11,15 @@
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_vulkan.h>
 
+#include "descriptor.hpp"
 #include "device.hpp"
+#include "glm/ext/matrix_clip_space.hpp"
+#include "glm/ext/matrix_transform.hpp"
 #include "math/mat.hpp"
 #include "mesh.hpp"
 #include "pipeline.hpp"
 #include "swapchain.hpp"
+#include "texture.hpp"
 #include "util/error.hpp"
 #include "utils.hpp"
 #include "vulkan/vulkan_core.h"
@@ -194,7 +198,7 @@ static VkInstance CreateInstance(std::shared_ptr<Window> window, std::initialize
   return instance;
 }
 
-Renderer::Renderer(std::shared_ptr<Window> window) : m_window{window} {
+Renderer::Renderer(std::shared_ptr<Window> window, Camera const &camera) : m_window{window}, m_camera{camera} {
   std::vector<const char *> enabled_exts;
 
   m_instance = CreateInstance(window,
@@ -211,6 +215,8 @@ Renderer::Renderer(std::shared_ptr<Window> window) : m_window{window} {
   features.vk_1_3_features.dynamicRendering = true;
   features.vk_1_3_features.synchronization2 = true;
   features.vk_1_2_features.bufferDeviceAddress = true;
+  // TODO: don't enforce
+  features.base_features.features.samplerAnisotropy = true;
 
   m_device = Device{m_instance, {DeviceExtension{VK_KHR_SWAPCHAIN_EXTENSION_NAME}}, &features};
 
@@ -244,7 +250,12 @@ Renderer::Renderer(std::shared_ptr<Window> window) : m_window{window} {
   m_instance_raii.surface = m_surface;
 
   for (auto &frame : m_frames) {
-    frame.render_target = AllocatedImage{m_device.GetDevice(), m_allocator, m_draw_extent};
+    frame.render_target = AllocatedImage{m_device.GetDevice(), m_allocator, m_draw_extent,
+                                         VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                                             VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT};
+
+    frame.depth_buffer = AllocatedImage{m_device.GetDevice(), m_allocator, m_draw_extent,
+                                        VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_FORMAT_D32_SFLOAT};
   }
 
   InitCommands();
@@ -253,6 +264,8 @@ Renderer::Renderer(std::shared_ptr<Window> window) : m_window{window} {
   InitPipelines();
   InitDefaultData();
 
+  m_texture = std::make_shared<Texture>(m_allocator, m_device, this, "textures/spritesheet_blocks.png");
+  UpdateTexturedMeshDescriptors();
   // m_imgui = ImGui{m_instance, m_window, &m_device};
 }
 
@@ -329,7 +342,7 @@ void Renderer::Draw() {
                                               VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
                                               VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
                                               VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL, frame.render_target.image));
-  DrawGeometry(cmd, frame.render_target);
+  DrawGeometry(cmd, frame.render_target, frame.depth_buffer);
 
   TransitionImage(cmd, ImageTransitionBarrier(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
                                               VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
@@ -392,7 +405,9 @@ void Renderer::InitCommands() {
     VK_CHECK(vkAllocateCommandBuffers(m_device.GetDevice(), &alloc_info, &m_frames[i].command_buffer));
 
     // TODO: Yeah we can add the render_targets here, why not?
-    m_frames[i].render_target = AllocatedImage{m_device.GetDevice(), m_allocator, m_draw_extent};
+    // m_frames[i].render_target = AllocatedImage{m_device.GetDevice(), m_allocator, m_draw_extent,
+    //                                            VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+    //                                                VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT};
   }
 }
 
@@ -414,7 +429,8 @@ void Renderer::UpdateDrawImageDescriptors() { throw "no"; }
 
 void Renderer::InitPipelines() {
   InitTrianglePipeline();
-  InitTriangleMeshPipeline();
+  // InitTriangleMeshPipeline();
+  InitTexturedMeshPipeline();
 }
 
 void Renderer::InitBackgroundPipelines() {}
@@ -467,8 +483,8 @@ void Renderer::SubmitNow(std::function<void(VkCommandBuffer)> f) {
 void Renderer::CreateDrawImage(VkExtent2D extent) {}
 
 void Renderer::InitTrianglePipeline() {
-  auto triangle_vertex = LoadShaderModule("../shaders/triangle.vert.spv", m_device.GetDevice());
-  auto triangle_fragment = LoadShaderModule("../shaders/triangle.frag.spv", m_device.GetDevice());
+  auto triangle_vertex = LoadShaderModule("./shaders/triangle.vert.spv", m_device.GetDevice());
+  auto triangle_fragment = LoadShaderModule("./shaders/triangle.frag.spv", m_device.GetDevice());
 
   if (!triangle_vertex || !triangle_fragment) {
     RuntimeError::Throw("Couldn't load triangle shaders!");
@@ -486,7 +502,7 @@ void Renderer::InitTrianglePipeline() {
   builder.SetCullMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
   builder.DisableMSAA();
   builder.DisableBlending();
-  builder.DisableDepthTest();
+  builder.EnableDepthTest();
 
   builder.SetColorAttachmentFormat(m_frames[0].render_target.format);
 
@@ -496,10 +512,19 @@ void Renderer::InitTrianglePipeline() {
   vkDestroyShaderModule(m_device.GetDevice(), *triangle_fragment, nullptr);
 }
 
-void Renderer::DrawGeometry(VkCommandBuffer cmd, AllocatedImage &render_target) {
+void Renderer::DrawGeometry(VkCommandBuffer cmd, AllocatedImage &render_target, AllocatedImage &depth_buffer) {
   VkClearValue clear_value{{0.0f, 0.0f, 0.0f, 1.0f}};
   VkRenderingAttachmentInfo color_attachment =
       AttachmentInfo(render_target.view, &clear_value, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+  clear_value.depthStencil.depth = 1.0f;
+
+  VkRenderingAttachmentInfo depth_attachment{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+  depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+  depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+  depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+  depth_attachment.imageView = depth_buffer.view;
+  depth_attachment.clearValue = clear_value;
 
   VkRenderingInfo rendering_info{
       .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
@@ -507,11 +532,10 @@ void Renderer::DrawGeometry(VkCommandBuffer cmd, AllocatedImage &render_target) 
       .layerCount = 1,
       .colorAttachmentCount = 1,
       .pColorAttachments = &color_attachment,
+      .pDepthAttachment = &depth_attachment,
   };
 
   vkCmdBeginRendering(cmd, &rendering_info);
-
-  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_triangle_pipeline);
 
   VkViewport viewport{
       .width = static_cast<float>(m_draw_extent.width),
@@ -524,26 +548,31 @@ void Renderer::DrawGeometry(VkCommandBuffer cmd, AllocatedImage &render_target) 
   VkRect2D scissor{.extent = m_draw_extent};
   vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-  vkCmdDraw(cmd, 3, 1, 0, 0);
-
-  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_triangle_mesh_pipeline);
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_textured_mesh_pipeline);
 
   DrawPushConstants push_constants;
   push_constants.vertex_buffer = m_mesh.vertex_addr;
-  push_constants.world = Mat<float, 4, 4>(1.0f);
+  push_constants.projection =
+      glm::infinitePerspectiveLH_ZO(glm::radians(45.0f),
+                                    static_cast<float>(m_draw_extent.width) / static_cast<float>(m_draw_extent.height),
+                                    0.1f) *
+      m_camera.ViewMatrix();
 
-  vkCmdPushConstants(cmd, m_triangle_mesh_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(DrawPushConstants),
+  vkCmdPushConstants(cmd, m_textured_mesh_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(DrawPushConstants),
                      &push_constants);
+  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_textured_mesh_pipeline_layout, 0, 1,
+                          &m_textured_mesh_descriptor_set, 0, nullptr);
+
   vkCmdBindIndexBuffer(cmd, m_mesh.index.buffer, 0, VK_INDEX_TYPE_UINT32);
 
-  vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
+  vkCmdDrawIndexed(cmd, 36, 1, 0, 0, 0);
 
   vkCmdEndRendering(cmd);
 }
 
 void Renderer::InitTriangleMeshPipeline() {
-  auto triangle_vertex = LoadShaderModule("../shaders/triangle_mesh.vert.spv", m_device.GetDevice());
-  auto triangle_fragment = LoadShaderModule("../shaders/triangle.frag.spv", m_device.GetDevice());
+  auto triangle_vertex = LoadShaderModule("./shaders/triangle_mesh.vert.spv", m_device.GetDevice());
+  auto triangle_fragment = LoadShaderModule("./shaders/triangle_mesh.frag.spv", m_device.GetDevice());
 
   if (!triangle_vertex || !triangle_fragment) {
     RuntimeError::Throw("Couldn't load triangle shaders!");
@@ -566,7 +595,7 @@ void Renderer::InitTriangleMeshPipeline() {
   builder.SetCullMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
   builder.DisableMSAA();
   builder.DisableBlending();
-  builder.DisableDepthTest();
+  builder.EnableDepthTest();
 
   builder.SetColorAttachmentFormat(m_frames[0].render_target.format);
 
@@ -576,15 +605,111 @@ void Renderer::InitTriangleMeshPipeline() {
   vkDestroyShaderModule(m_device.GetDevice(), *triangle_fragment, nullptr);
 }
 
-void Renderer::InitDefaultData() {
-  std::array<Vertex, 4> vertices{Vertex{.position = {0.5f, -0.5f, 0.0f}, .color = {0.0f, 0.0f, 0.0f, 1.0f}},
-                                 Vertex{.position = {0.5f, 0.5f, 0.0f}, .color = {0.5f, 0.5f, 0.5f, 1.0f}},
-                                 Vertex{.position = {-0.5f, -0.5f, 0.0f}, .color = {1.0f, 0.0f, 0.0f, 1.0f}},
-                                 Vertex{.position = {-0.5f, 0.5f, 0.0f}, .color = {0.0f, 1.0f, 0.0f, 1.0f}}};
+void Renderer::InitTexturedMeshPipeline() {
+  auto vertex = LoadShaderModule("./shaders/textured_mesh.vert.spv", m_device.GetDevice());
+  auto fragment = LoadShaderModule("./shaders/textured_mesh.frag.spv", m_device.GetDevice());
 
-  std::array<uint32_t, 6> indices{0, 1, 2, 2, 1, 3};
+  if (!vertex || !fragment) {
+    RuntimeError::Throw("Couldn't load triangle shaders!");
+  }
+
+  VkPushConstantRange buffer_range{.stageFlags = VK_SHADER_STAGE_VERTEX_BIT, .size = sizeof(DrawPushConstants)};
+
+  DescriptorLayoutBuilder descriptor_builder;
+  descriptor_builder.AddBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+  m_textured_mesh_descriptor_layout = descriptor_builder.Build(m_device.GetDevice(), VK_SHADER_STAGE_FRAGMENT_BIT);
+
+  VkPipelineLayoutCreateInfo layout_info{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+  layout_info.pushConstantRangeCount = 1;
+  layout_info.pPushConstantRanges = &buffer_range;
+  layout_info.setLayoutCount = 1;
+  layout_info.pSetLayouts = &m_textured_mesh_descriptor_layout;
+
+  VK_CHECK(vkCreatePipelineLayout(m_device.GetDevice(), &layout_info, nullptr, &m_textured_mesh_pipeline_layout));
+
+  GraphicsPipelineBuilder builder;
+
+  builder.pipeline_layout = m_textured_mesh_pipeline_layout;
+  builder.SetShaders(*vertex, *fragment);
+  builder.SetInputTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+  builder.SetPolygonMode(VK_POLYGON_MODE_FILL);
+  builder.SetCullMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
+  builder.DisableMSAA();
+  builder.DisableBlending();
+  builder.EnableDepthTest();
+
+  builder.SetColorAttachmentFormat(m_frames[0].render_target.format);
+
+  m_textured_mesh_pipeline = builder.Build(m_device.GetDevice());
+
+  vkDestroyShaderModule(m_device.GetDevice(), *vertex, nullptr);
+  vkDestroyShaderModule(m_device.GetDevice(), *fragment, nullptr);
+
+  DescriptorAllocator::PoolSizeRatio ratios[] = {{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1.0f}};
+  m_dallocator.InitPool(m_device.GetDevice(), 1, ratios);
+  m_textured_mesh_descriptor_set = m_dallocator.Allocate(m_device.GetDevice(), m_textured_mesh_descriptor_layout);
+}
+
+void Renderer::InitDefaultData() {
+  glm::vec4 grass(0.0f, 0.0f, 16.0f / 1024.0f, 16.0f / 16.0f);
+  glm::vec4 dirt(16.0f / 1024.0f, 0.0f, 32.0f / 1024.0f, 16.0f / 16.0f);
+
+  std::array<Vtx, 24> vertices{
+      // Front face (+Z)
+      Vtx{.pos = {1.0f, 0.0f, 1.0f}, .uv = {dirt.z, dirt.y}}, Vtx{.pos = {1.0f, 1.0f, 1.0f}, .uv = {dirt.z, dirt.w}},
+      Vtx{.pos = {0.0f, 0.0f, 1.0f}, .uv = {dirt.x, dirt.y}}, Vtx{.pos = {0.0f, 1.0f, 1.0f}, .uv = {dirt.x, dirt.w}},
+
+      // Back face (-Z)
+      Vtx{.pos = {0.0f, 0.0f, 0.0f}, .uv = {dirt.z, dirt.y}}, Vtx{.pos = {0.0f, 1.0f, 0.0f}, .uv = {dirt.z, dirt.w}},
+      Vtx{.pos = {1.0f, 0.0f, 0.0f}, .uv = {dirt.x, dirt.y}}, Vtx{.pos = {1.0f, 1.0f, 0.0f}, .uv = {dirt.x, dirt.w}},
+
+      // Left face (-X)
+      Vtx{.pos = {0.0f, 0.0f, 1.0f}, .uv = {dirt.z, dirt.y}}, Vtx{.pos = {0.0f, 1.0f, 1.0f}, .uv = {dirt.z, dirt.w}},
+      Vtx{.pos = {0.0f, 0.0f, 0.0f}, .uv = {dirt.x, dirt.y}}, Vtx{.pos = {0.0f, 1.0f, 0.0f}, .uv = {dirt.x, dirt.w}},
+
+      // Right face (+X)
+      Vtx{.pos = {1.0f, 0.0f, 0.0f}, .uv = {dirt.z, dirt.y}}, Vtx{.pos = {1.0f, 1.0f, 0.0f}, .uv = {dirt.z, dirt.w}},
+      Vtx{.pos = {1.0f, 0.0f, 1.0f}, .uv = {dirt.x, dirt.y}}, Vtx{.pos = {1.0f, 1.0f, 1.0f}, .uv = {dirt.x, dirt.w}},
+
+      // Top face (+Y)
+      Vtx{.pos = {1.0f, 1.0f, 1.0f}, .uv = {dirt.z, dirt.y}}, Vtx{.pos = {1.0f, 1.0f, 0.0f}, .uv = {dirt.z, dirt.w}},
+      Vtx{.pos = {0.0f, 1.0f, 1.0f}, .uv = {dirt.x, dirt.y}}, Vtx{.pos = {0.0f, 1.0f, 0.0f}, .uv = {dirt.x, dirt.w}},
+
+      // Bottom face (-Y)
+      Vtx{.pos = {1.0f, 0.0f, 0.0f}, .uv = {grass.z, grass.y}},
+      Vtx{.pos = {1.0f, 0.0f, 1.0f}, .uv = {grass.z, grass.w}},
+      Vtx{.pos = {0.0f, 0.0f, 0.0f}, .uv = {grass.x, grass.y}},
+      Vtx{.pos = {0.0f, 0.0f, 1.0f}, .uv = {grass.x, grass.w}}};
+
+  std::array<uint32_t, 36> indices{// Front face
+                                   0, 1, 2, 1, 3, 2,
+                                   // Back face
+                                   4, 5, 6, 5, 7, 6,
+                                   // Left face
+                                   8, 9, 10, 9, 11, 10,
+                                   // Right face
+                                   12, 13, 14, 13, 15, 14,
+                                   // Top face
+                                   16, 17, 18, 17, 19, 18,
+                                   // Bottom face
+                                   20, 21, 22, 21, 23, 22};
 
   m_mesh = UploadMesh(this, m_device.GetDevice(), m_allocator, indices, vertices);
+}
+
+void Renderer::UpdateTexturedMeshDescriptors() {
+  VkDescriptorImageInfo image_info{};
+  image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  image_info.imageView = m_texture->GetView();
+  image_info.sampler = m_texture->GetSampler();
+
+  VkWriteDescriptorSet descriptor_write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+  descriptor_write.descriptorCount = 1;
+  descriptor_write.dstSet = m_textured_mesh_descriptor_set;
+  descriptor_write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+  descriptor_write.pImageInfo = &image_info;
+
+  vkUpdateDescriptorSets(m_device.GetDevice(), 1, &descriptor_write, 0, nullptr);
 }
 
 void Renderer::ResizeSwapchain() {
@@ -595,7 +720,12 @@ void Renderer::ResizeSwapchain() {
   m_draw_extent = {width, height};
 
   for (auto &frame : m_frames) {
-    frame.render_target = AllocatedImage{m_device.GetDevice(), m_allocator, m_draw_extent};
+    frame.render_target = AllocatedImage{m_device.GetDevice(), m_allocator, m_draw_extent,
+                                         VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                                             VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT};
+
+    frame.depth_buffer = AllocatedImage{m_device.GetDevice(), m_allocator, m_draw_extent,
+                                        VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_FORMAT_D32_SFLOAT};
   }
   // UpdateDrawImageDescriptors();
 }

@@ -38,6 +38,7 @@ struct SuitableDevice {
   VkPhysicalDevice device{};
   QueueFamilyIndices indices;
   DeviceFeatures features;
+  VkPhysicalDeviceProperties properties;
 
   bool discrete = false;
   std::string name = "";
@@ -97,6 +98,8 @@ public:
                ? m_current_device->indices.compute_queue_family->index
                : GetGraphicsQueueFamily();
   }
+
+  FORCE_INLINE float GetMaxSamplerAnisotropy() { return m_current_device->properties.limits.maxSamplerAnisotropy; }
 
   FORCE_INLINE void WaitIdle() { vkDeviceWaitIdle(m_device); }
 

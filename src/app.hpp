@@ -13,6 +13,8 @@ class App {
   std::shared_ptr<vk::Renderer> m_renderer;
   std::shared_ptr<WidgetManager> m_widget_manager;
 
+  Camera m_camera;
+
   float time_taken_to_render = 0;
 
 public:

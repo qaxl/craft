@@ -135,7 +135,7 @@ void Device::SelectPhysicalDevice(std::initializer_list<DeviceExtension> extensi
         }
 
         std::lock_guard<std::mutex> lock(suitable_devices_lock);
-        suitable_devices.emplace_back(SuitableDevice{device, indices, *features,
+        suitable_devices.emplace_back(SuitableDevice{device, indices, *features, props,
                                                      props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU,
                                                      props.deviceName, extensions_enabled});
       });

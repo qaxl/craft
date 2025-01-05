@@ -4,7 +4,7 @@
 
 namespace craft::vk {
 MeshBuffers UploadMesh(Renderer *renderer, VkDevice device, VmaAllocator allocator, std::span<uint32_t> indices,
-                       std::span<Vertex> vertices) {
+                       std::span<Vtx> vertices) {
   size_t vertex_size = vertices.size_bytes();
   size_t index_size = indices.size_bytes();
 

@@ -18,4 +18,7 @@ option(BUILD_WITH_STEAMSDK "Build with Steamworks SDK" ON)
 
 add_subdirectory(src)
 add_subdirectory(deps)
+add_subdirectory(shaders)
+
+file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/textures DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
 

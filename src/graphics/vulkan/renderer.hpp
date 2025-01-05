@@ -11,6 +11,7 @@
 
 #include "descriptor.hpp"
 #include "device.hpp"
+#include "graphics/camera.hpp"
 #include "image.hpp"
 #include "imgui.hpp"
 #include "math/vec.hpp"
@@ -19,6 +20,8 @@
 #include "swapchain.hpp"
 
 namespace craft::vk {
+class Texture;
+
 struct Instance {
   VkInstance instance{};
   VkSurfaceKHR surface{};
@@ -58,6 +61,7 @@ struct FrameData {
   VkFence fe_render;
 
   AllocatedImage render_target;
+  AllocatedImage depth_buffer;
 };
 
 struct ComputePushConstants {
@@ -90,7 +94,7 @@ constexpr const size_t kMinFramesInFlight = 2;
 
 class Renderer {
 public:
-  Renderer(std::shared_ptr<Window> window);
+  Renderer(std::shared_ptr<Window> window, Camera const &camera);
   ~Renderer();
 
   Renderer(const Renderer &) = delete;
@@ -118,13 +122,17 @@ private:
   void InitDefaultData();
   void InitImmediateSubmit();
 
+  void InitTexturedMeshPipeline();
+  void UpdateTexturedMeshDescriptors();
+
   void DrawBackground(VkCommandBuffer cmd);
-  void DrawGeometry(VkCommandBuffer cmd, AllocatedImage &render_target);
+  void DrawGeometry(VkCommandBuffer cmd, AllocatedImage &render_target, AllocatedImage &depth_buffer);
 
   void ResizeSwapchain();
 
 private:
   std::shared_ptr<Window> m_window;
+  Camera const &m_camera;
 
   Instance m_instance_raii;
   VkInstance m_instance;
@@ -137,6 +145,7 @@ private:
   Allocator m_allocator_raii;
 
   VkSurfaceKHR m_surface;
+  std::shared_ptr<Texture> m_texture;
 
   uint32_t m_frame_number = 0;
   std::array<FrameData, kMaxFramesInFlight> m_frames;
@@ -166,8 +175,14 @@ private:
   VkPipelineLayout m_triangle_mesh_pipeline_layout;
   VkPipeline m_triangle_mesh_pipeline;
 
+  VkDescriptorSetLayout m_textured_mesh_descriptor_layout;
+  VkDescriptorSet m_textured_mesh_descriptor_set;
+  VkPipelineLayout m_textured_mesh_pipeline_layout;
+  VkPipeline m_textured_mesh_pipeline;
+
   MeshBuffers m_mesh;
 
   ImmediateSubmit m_imm;
+  DescriptorAllocator m_dallocator;
 };
 } // namespace craft::vk

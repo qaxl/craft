@@ -20,13 +20,14 @@ struct AllocatedImage {
 
   AllocatedImage() {}
 
-  AllocatedImage(VkDevice device, VmaAllocator allocator, VkExtent2D extent) : device{device}, allocator{allocator} {
+  AllocatedImage(VkDevice device, VmaAllocator allocator, VkExtent2D extent, VkImageUsageFlags flags,
+                 VkFormat format = VK_FORMAT_R16G16B16A16_SFLOAT)
+      : device{device}, allocator{allocator} {
     VkExtent3D draw_image_extent{extent.width, extent.height, 1};
-    this->format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    this->format = format;
     this->extent = draw_image_extent;
 
-    VkImageUsageFlags draw_image_usage =
-        VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    VkImageUsageFlags draw_image_usage = flags;
 
     VkImageCreateInfo img_info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
     img_info.format = format;
@@ -50,7 +51,8 @@ struct AllocatedImage {
     view_info.format = format;
     view_info.subresourceRange.levelCount = 1;
     view_info.subresourceRange.layerCount = 1;
-    view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    view_info.subresourceRange.aspectMask =
+        (format == VK_FORMAT_D32_SFLOAT) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
 
     VK_CHECK(vkCreateImageView(device, &view_info, nullptr, &view));
   }
