@@ -198,7 +198,8 @@ static VkInstance CreateInstance(std::shared_ptr<Window> window, std::initialize
   return instance;
 }
 
-Renderer::Renderer(std::shared_ptr<Window> window, Camera const &camera) : m_window{window}, m_camera{camera} {
+Renderer::Renderer(std::shared_ptr<Window> window, Camera const &camera, Chunk &chunk)
+    : m_window{window}, m_camera{camera}, m_chunk{chunk} {
   std::vector<const char *> enabled_exts;
 
   m_instance = CreateInstance(window,
@@ -266,7 +267,7 @@ Renderer::Renderer(std::shared_ptr<Window> window, Camera const &camera) : m_win
 
   m_texture = std::make_shared<Texture>(m_allocator, m_device, this, "textures/spritesheet_blocks.png");
   UpdateTexturedMeshDescriptors();
-  // m_imgui = ImGui{m_instance, m_window, &m_device};
+  m_imgui = ImGui{m_instance, m_window, &m_device};
 }
 
 Renderer::~Renderer() {
@@ -275,11 +276,14 @@ Renderer::~Renderer() {
   DestroyBuffer(m_allocator, std::move(m_mesh.index));
   DestroyBuffer(m_allocator, std::move(m_mesh.vertex));
 
-  vkDestroyPipelineLayout(m_device.GetDevice(), m_triangle_mesh_pipeline_layout, nullptr);
-  vkDestroyPipeline(m_device.GetDevice(), m_triangle_mesh_pipeline, nullptr);
+  vkDestroyPipelineLayout(m_device.GetDevice(), m_textured_mesh_pipeline_layout, nullptr);
+  vkDestroyPipeline(m_device.GetDevice(), m_textured_mesh_pipeline, nullptr);
 
-  vkDestroyPipelineLayout(m_device.GetDevice(), m_triangle_pipeline_layout, nullptr);
-  vkDestroyPipeline(m_device.GetDevice(), m_triangle_pipeline, nullptr);
+  vkDestroyDescriptorSetLayout(m_device.GetDevice(), m_textured_mesh_descriptor_layout, nullptr);
+  m_dallocator.DestroyPool(m_device.GetDevice());
+
+  // vkDestroyPipelineLayout(m_device.GetDevice(), m_triangle_pipeline_layout, nullptr);
+  // vkDestroyPipeline(m_device.GetDevice(), m_triangle_pipeline, nullptr);
 
   // vkDestroyPipelineLayout(m_device.GetDevice(), m_gradient_pipeline_layout, nullptr);
   // for (auto &bg_effect : m_bg_effects) {
@@ -343,6 +347,7 @@ void Renderer::Draw() {
                                               VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
                                               VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL, frame.render_target.image));
   DrawGeometry(cmd, frame.render_target, frame.depth_buffer);
+  m_imgui.Draw(cmd, frame.render_target.view, m_draw_extent);
 
   TransitionImage(cmd, ImageTransitionBarrier(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
                                               VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
@@ -356,7 +361,7 @@ void Renderer::Draw() {
   CloneImage(cmd, frame.render_target.image, image, m_draw_extent, m_draw_extent);
   TransitionImage(cmd,
                   ImageTransitionBarrier(VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
-                                         VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT,
+                                         VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_NONE,
                                          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, image));
 
   VK_CHECK(vkEndCommandBuffer(cmd));
@@ -428,7 +433,7 @@ void Renderer::InitDescriptors() {}
 void Renderer::UpdateDrawImageDescriptors() { throw "no"; }
 
 void Renderer::InitPipelines() {
-  InitTrianglePipeline();
+  // InitTrianglePipeline();
   // InitTriangleMeshPipeline();
   InitTexturedMeshPipeline();
 }
@@ -565,7 +570,7 @@ void Renderer::DrawGeometry(VkCommandBuffer cmd, AllocatedImage &render_target, 
 
   vkCmdBindIndexBuffer(cmd, m_mesh.index.buffer, 0, VK_INDEX_TYPE_UINT32);
 
-  vkCmdDrawIndexed(cmd, 36, 1, 0, 0, 0);
+  vkCmdDrawIndexed(cmd, m_mesh.index.info.size / 4, 1, 0, 0, 0);
 
   vkCmdEndRendering(cmd);
 }
@@ -633,7 +638,7 @@ void Renderer::InitTexturedMeshPipeline() {
   builder.SetShaders(*vertex, *fragment);
   builder.SetInputTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
   builder.SetPolygonMode(VK_POLYGON_MODE_FILL);
-  builder.SetCullMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
+  builder.SetCullMode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
   builder.DisableMSAA();
   builder.DisableBlending();
   builder.EnableDepthTest();
@@ -651,50 +656,14 @@ void Renderer::InitTexturedMeshPipeline() {
 }
 
 void Renderer::InitDefaultData() {
-  glm::vec4 grass(0.0f, 0.0f, 16.0f / 1024.0f, 16.0f / 16.0f);
-  glm::vec4 dirt(16.0f / 1024.0f, 0.0f, 32.0f / 1024.0f, 16.0f / 16.0f);
-
-  std::array<Vtx, 24> vertices{
-      // Front face (+Z)
-      Vtx{.pos = {1.0f, 0.0f, 1.0f}, .uv = {dirt.z, dirt.y}}, Vtx{.pos = {1.0f, 1.0f, 1.0f}, .uv = {dirt.z, dirt.w}},
-      Vtx{.pos = {0.0f, 0.0f, 1.0f}, .uv = {dirt.x, dirt.y}}, Vtx{.pos = {0.0f, 1.0f, 1.0f}, .uv = {dirt.x, dirt.w}},
-
-      // Back face (-Z)
-      Vtx{.pos = {0.0f, 0.0f, 0.0f}, .uv = {dirt.z, dirt.y}}, Vtx{.pos = {0.0f, 1.0f, 0.0f}, .uv = {dirt.z, dirt.w}},
-      Vtx{.pos = {1.0f, 0.0f, 0.0f}, .uv = {dirt.x, dirt.y}}, Vtx{.pos = {1.0f, 1.0f, 0.0f}, .uv = {dirt.x, dirt.w}},
-
-      // Left face (-X)
-      Vtx{.pos = {0.0f, 0.0f, 1.0f}, .uv = {dirt.z, dirt.y}}, Vtx{.pos = {0.0f, 1.0f, 1.0f}, .uv = {dirt.z, dirt.w}},
-      Vtx{.pos = {0.0f, 0.0f, 0.0f}, .uv = {dirt.x, dirt.y}}, Vtx{.pos = {0.0f, 1.0f, 0.0f}, .uv = {dirt.x, dirt.w}},
-
-      // Right face (+X)
-      Vtx{.pos = {1.0f, 0.0f, 0.0f}, .uv = {dirt.z, dirt.y}}, Vtx{.pos = {1.0f, 1.0f, 0.0f}, .uv = {dirt.z, dirt.w}},
-      Vtx{.pos = {1.0f, 0.0f, 1.0f}, .uv = {dirt.x, dirt.y}}, Vtx{.pos = {1.0f, 1.0f, 1.0f}, .uv = {dirt.x, dirt.w}},
-
-      // Top face (+Y)
-      Vtx{.pos = {1.0f, 1.0f, 1.0f}, .uv = {dirt.z, dirt.y}}, Vtx{.pos = {1.0f, 1.0f, 0.0f}, .uv = {dirt.z, dirt.w}},
-      Vtx{.pos = {0.0f, 1.0f, 1.0f}, .uv = {dirt.x, dirt.y}}, Vtx{.pos = {0.0f, 1.0f, 0.0f}, .uv = {dirt.x, dirt.w}},
-
-      // Bottom face (-Y)
-      Vtx{.pos = {1.0f, 0.0f, 0.0f}, .uv = {grass.z, grass.y}},
-      Vtx{.pos = {1.0f, 0.0f, 1.0f}, .uv = {grass.z, grass.w}},
-      Vtx{.pos = {0.0f, 0.0f, 0.0f}, .uv = {grass.x, grass.y}},
-      Vtx{.pos = {0.0f, 0.0f, 1.0f}, .uv = {grass.x, grass.w}}};
-
-  std::array<uint32_t, 36> indices{// Front face
-                                   0, 1, 2, 1, 3, 2,
-                                   // Back face
-                                   4, 5, 6, 5, 7, 6,
-                                   // Left face
-                                   8, 9, 10, 9, 11, 10,
-                                   // Right face
-                                   12, 13, 14, 13, 15, 14,
-                                   // Top face
-                                   16, 17, 18, 17, 19, 18,
-                                   // Bottom face
-                                   20, 21, 22, 21, 23, 22};
-
-  m_mesh = UploadMesh(this, m_device.GetDevice(), m_allocator, indices, vertices);
+  ChunkMesh mesh = ChunkMesh::GenerateChunkMeshFromChunk(&m_chunk);
+  m_device.WaitIdle();
+  if (m_mesh.vertex.buffer && m_mesh.index.buffer) {
+    DestroyBuffer(m_allocator, std::move(m_mesh.vertex));
+    DestroyBuffer(m_allocator, std::move(m_mesh.index));
+  }
+  m_mesh = UploadMesh(this, m_device.GetDevice(), m_allocator, mesh.indices, mesh.vertices);
+  std::cout << m_mesh.index.info.size / 4 << ',' << mesh.indices.size() << std::endl;
 }
 
 void Renderer::UpdateTexturedMeshDescriptors() {

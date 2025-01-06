@@ -16,7 +16,7 @@
             "name": "Debug",
             "program": "${workspaceFolder}/build/bin/craft.exe",
             "args": [],
-            "cwd": "${workspaceFolder}/build"
+            "cwd": "${workspaceFolder}/build/bin"
         }
     ]
 }

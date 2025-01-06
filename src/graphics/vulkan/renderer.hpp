@@ -94,7 +94,7 @@ constexpr const size_t kMinFramesInFlight = 2;
 
 class Renderer {
 public:
-  Renderer(std::shared_ptr<Window> window, Camera const &camera);
+  Renderer(std::shared_ptr<Window> window, Camera const &camera, Chunk &chunk);
   ~Renderer();
 
   Renderer(const Renderer &) = delete;
@@ -109,6 +109,8 @@ public:
   void Draw();
   void SubmitNow(std::function<void(VkCommandBuffer)> f);
 
+  void InitDefaultData();
+
 private:
   void InitCommands();
   void InitSyncStructures();
@@ -119,7 +121,6 @@ private:
   void UpdateDrawImageDescriptors();
   void InitTrianglePipeline();
   void InitTriangleMeshPipeline();
-  void InitDefaultData();
   void InitImmediateSubmit();
 
   void InitTexturedMeshPipeline();
@@ -133,6 +134,7 @@ private:
 private:
   std::shared_ptr<Window> m_window;
   Camera const &m_camera;
+  Chunk &m_chunk;
 
   Instance m_instance_raii;
   VkInstance m_instance;
@@ -167,7 +169,7 @@ private:
   // int m_current_bg_effect = 0;
   // std::vector<ComputeEffect> m_bg_effects;
 
-  // ImGui m_imgui;
+  ImGui m_imgui;
 
   VkPipelineLayout m_triangle_pipeline_layout;
   VkPipeline m_triangle_pipeline;
@@ -180,7 +182,7 @@ private:
   VkPipelineLayout m_textured_mesh_pipeline_layout;
   VkPipeline m_textured_mesh_pipeline;
 
-  MeshBuffers m_mesh;
+  MeshBuffers m_mesh{};
 
   ImmediateSubmit m_imm;
   DescriptorAllocator m_dallocator;

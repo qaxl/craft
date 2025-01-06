@@ -27,3 +27,5 @@ add_subdirectory(steamworks)
 
 # TEMP
 add_subdirectory(glm)
+
+add_subdirectory(single_header)

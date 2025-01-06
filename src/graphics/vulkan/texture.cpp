@@ -1,8 +1,8 @@
 #include "texture.hpp"
 
-#include "graphics/stb_image.h"
 #include "util/error.hpp"
 #include "utils.hpp"
+#include <stb/stb_image.h>
 
 namespace craft::vk {
 Texture::Texture(VmaAllocator allocator, Device &device, Renderer *renderer, const char *path)

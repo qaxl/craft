@@ -27,7 +27,7 @@ ImGui::ImGui(VkInstance instance, std::shared_ptr<Window> window, Device *device
   ImGui_ImplSDL3_InitForVulkan(window->GetHandle());
 
   // TODO: get real format
-  VkFormat format = VK_FORMAT_B8G8R8A8_UNORM;
+  VkFormat format = VK_FORMAT_R16G16B16A16_SFLOAT;
   ImGui_ImplVulkan_InitInfo init_info{
       .Instance = instance,
       .PhysicalDevice = m_device->GetPhysicalDevice(),

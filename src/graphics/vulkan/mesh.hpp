@@ -8,6 +8,7 @@
 
 #include "buffer.hpp"
 #include "math/vec.hpp"
+#include "world/chunk.hpp"
 
 namespace craft::vk {
 class Renderer;
@@ -36,9 +37,6 @@ struct Vtx {
   glm::vec2 uv;
   glm::vec2 _pad2;
 };
-
-struct Vertex2 {};
-
 struct MeshBuffers {
   AllocatedBuffer index;
   AllocatedBuffer vertex;
@@ -52,5 +50,12 @@ struct DrawPushConstants {
   glm::mat4 projection;
   // Mat<float, 4, 4> world;
   VkDeviceAddress vertex_buffer;
+};
+
+struct ChunkMesh {
+  std::vector<Vtx> vertices;
+  std::vector<uint32_t> indices;
+
+  static ChunkMesh GenerateChunkMeshFromChunk(Chunk *chunk);
 };
 } // namespace craft::vk

@@ -4,6 +4,12 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <iostream>
+
+inline std::ostream &operator<<(std::ostream &o, glm::vec3 &v) {
+  o << "vec3{" << v.x << ':' << v.y << ':' << v.z << '}';
+  return o;
+}
 
 namespace craft {
 enum class CameraMovement { Forward, Backward, Left, Right, Up, Down };
@@ -24,21 +30,24 @@ public:
 
   void ProcessKeyboard(CameraMovement direction, float delta) {
     float velocity = m_movement_speed * delta;
+    glm::vec3 front = m_front;
+    front.y = 0.0f;
+
     switch (direction) {
     case CameraMovement::Forward:
-      m_position += m_front * velocity;
+      m_position += front * velocity;
       break;
 
     case CameraMovement::Backward:
-      m_position -= m_front * velocity;
+      m_position -= front * velocity;
       break;
 
     case CameraMovement::Left:
-      m_position -= m_right * velocity;
+      m_position += m_right * velocity;
       break;
 
     case CameraMovement::Right:
-      m_position += m_right * velocity;
+      m_position -= m_right * velocity;
       break;
 
     case CameraMovement::Up:

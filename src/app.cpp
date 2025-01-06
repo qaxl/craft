@@ -18,9 +18,11 @@
 #include "graphics/vulkan/renderer.hpp"
 #include "graphics/widgets/background_settings_widget.hpp"
 #include "graphics/widgets/render_time_widget.hpp"
+#include "graphics/widgets/terrain_widget.hpp"
 #include "graphics/widgets/util_widget.hpp"
 #include "graphics/widgets/widget.hpp"
 #include "util/error.hpp"
+#include "world/generator.hpp"
 
 namespace craft {
 App::~App() {
@@ -74,13 +76,16 @@ App::App() {
         "have the ability to program in OpenGL/DirectX 11, proficiently, you're welcome contributing into the "
         "framework that the current application is running from https://github.com/qaxl/craft :)");
   }
+  m_chunk = std::make_unique<Chunk>();
+  GenerateChunk(10.0f, m_noise, *m_chunk);
 
   m_window = std::make_shared<Window>(1024, 768, "test");
-  m_renderer = std::make_shared<vk::Renderer>(m_window, m_camera);
+  m_renderer = std::make_shared<vk::Renderer>(m_window, m_camera, *m_chunk);
 
-  // m_widget_manager = std::make_shared<WidgetManager>();
-  // m_widget_manager->AddWidget(std::make_unique<UtilWidget>());
-  // m_widget_manager->AddWidget(std::make_unique<RenderTimingsWidget>(&time_taken_to_render));
+  m_widget_manager = std::make_shared<WidgetManager>();
+  m_widget_manager->AddWidget(std::make_unique<UtilWidget>());
+  m_widget_manager->AddWidget(std::make_unique<RenderTimingsWidget>(&time_taken_to_render));
+  m_widget_manager->AddWidget(std::make_unique<TerrainWidget>(m_regenerate, m_noise));
   // m_widget_manager->AddWidget(std::make_unique<BackgroundSettingsWidget>(m_renderer));
 
   // std::cout << "Hi, " << SteamFriends()->GetPersonaName() << "!" << std::endl;
@@ -123,8 +128,7 @@ bool App::Run() {
   uint64_t start_tick = SDL_GetTicksNS();
   uint64_t end_tick = SDL_GetTicksNS();
 
-  bool render_stats = true;
-  bool bg_settings = true;
+  bool camera_enabled = true;
 
   SteamCallbackHandler handler;
 
@@ -138,16 +142,15 @@ bool App::Run() {
     float tick_difference = start_tick - end_tick;
     end_tick = start_tick;
 
-    // ImGui_ImplVulkan_NewFrame();
-    // ImGui_ImplSDL3_NewFrame();
-    // ImGui::NewFrame();
+    ImGui_ImplVulkan_NewFrame();
+    ImGui_ImplSDL3_NewFrame();
+    ImGui::NewFrame();
 
-    // m_widget_manager->RenderWidgets();
-
-    // ImGui::Render();
+    m_widget_manager->RenderWidgets();
 
     uint64_t start = SDL_GetTicksNS();
 
+    ImGui::Render();
     m_renderer->Draw();
 
     uint64_t end = SDL_GetTicksNS();
@@ -156,37 +159,50 @@ bool App::Run() {
 
     m_window->PollEvents();
 
-    if (m_window->IsKeyPressed(KeyboardKey::W)) {
-      m_camera.ProcessKeyboard(CameraMovement::Forward, tick_difference * 1e-9);
-    }
-    if (m_window->IsKeyPressed(KeyboardKey::S)) {
-      m_camera.ProcessKeyboard(CameraMovement::Backward, tick_difference * 1e-9);
-    }
-    if (m_window->IsKeyPressed(KeyboardKey::A)) {
-      m_camera.ProcessKeyboard(CameraMovement::Left, tick_difference * 1e-9);
-    }
-    if (m_window->IsKeyPressed(KeyboardKey::D)) {
-      m_camera.ProcessKeyboard(CameraMovement::Right, tick_difference * 1e-9);
+    if (m_window->IsKeyPressed(KeyboardKey::Tab)) {
+      m_window->ToggleRelativeMouseMode();
+      camera_enabled = !camera_enabled;
     }
 
-    if (m_window->IsKeyPressed(KeyboardKey::LCtrl)) {
-      m_camera.ProcessKeyboard(CameraMovement::Down, tick_difference * 1e-9);
-    }
-    if (m_window->IsKeyPressed(KeyboardKey::Space)) {
-      m_camera.ProcessKeyboard(CameraMovement::Up, tick_difference * 1e-9);
+    if (camera_enabled) {
+      if (m_window->IsKeyPressed(KeyboardKey::W)) {
+        m_camera.ProcessKeyboard(CameraMovement::Forward, tick_difference * 1e-9);
+      }
+      if (m_window->IsKeyPressed(KeyboardKey::S)) {
+        m_camera.ProcessKeyboard(CameraMovement::Backward, tick_difference * 1e-9);
+      }
+      if (m_window->IsKeyPressed(KeyboardKey::A)) {
+        m_camera.ProcessKeyboard(CameraMovement::Left, tick_difference * 1e-9);
+      }
+      if (m_window->IsKeyPressed(KeyboardKey::D)) {
+        m_camera.ProcessKeyboard(CameraMovement::Right, tick_difference * 1e-9);
+      }
+
+      if (m_window->IsKeyPressed(KeyboardKey::LShift)) {
+        m_camera.ProcessKeyboard(CameraMovement::Down, tick_difference * 1e-9);
+      }
+      if (m_window->IsKeyPressed(KeyboardKey::Space)) {
+        m_camera.ProcessKeyboard(CameraMovement::Up, tick_difference * 1e-9);
+      }
+
+      if (m_window->IsKeyPressed(KeyboardKey::KP_0)) {
+        m_camera.IncreaseMovementSpeedBy(1.0f);
+      }
+      if (m_window->IsKeyPressed(KeyboardKey::KP_1)) {
+        m_camera.IncreaseMovementSpeedBy(-1.0f);
+      }
+
+      auto [x, y] = m_window->GetRelativeMouseMotion();
+      m_camera.ProcessMouseMovement(x, y);
+      auto scroll_y = m_window->GetMouseScroll();
+      m_camera.ProcessMouseScroll(scroll_y);
     }
 
-    if (m_window->IsKeyPressed(KeyboardKey::KP_0)) {
-      m_camera.IncreaseMovementSpeedBy(1.0f);
+    if (m_regenerate) {
+      GenerateChunk(12.0f, m_noise, *m_chunk);
+      m_renderer->InitDefaultData();
+      m_regenerate = false;
     }
-    if (m_window->IsKeyPressed(KeyboardKey::KP_1)) {
-      m_camera.IncreaseMovementSpeedBy(-1.0f);
-    }
-
-    auto [x, y] = m_window->GetRelativeMouseMotion();
-    m_camera.ProcessMouseMovement(x, y);
-    auto scroll_y = m_window->GetMouseScroll();
-    m_camera.ProcessMouseScroll(scroll_y);
 
     // SteamAPI_RunCallbacks();
   }

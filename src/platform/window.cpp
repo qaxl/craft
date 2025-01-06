@@ -71,8 +71,8 @@ void Window::PollEvents() {
         m_mouse_scroll += event.wheel.y;
         break;
       }
-      // TODO: imgui
-      // ImGui_ImplSDL3_ProcessEvent(&event);
+
+      ImGui_ImplSDL3_ProcessEvent(&event);
     }
 
     if (spin) {

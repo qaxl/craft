@@ -186,6 +186,10 @@ public:
   std::pair<float, float> GetRelativeMouseMotion() { return m_relative_motion; }
   float GetMouseScroll() { return m_mouse_scroll; }
 
+  void ToggleRelativeMouseMode() {
+    SDL_SetWindowRelativeMouseMode(m_window, !SDL_GetWindowRelativeMouseMode(m_window));
+  }
+
 private:
   SDL_Window *m_window = nullptr;
   bool m_window_is_open = true;
