@@ -4,6 +4,10 @@
 #include <numbers>
 #include <utility>
 
+#include <glm/glm.hpp>
+
+#include "util/optimization.hpp"
+
 namespace craft {
 template <typename T, size_t N, size_t M> struct Mat {
   T v[N][M];
@@ -16,20 +20,25 @@ template <typename T, size_t N, size_t M> struct Mat {
   }
 
   template <typename... Args> constexpr Mat(Args &&...args) {
-    static_assert(sizeof...(args) == N * M, "Number of arguments must match the size of the matrix");
+    // static_assert(sizeof...(args) == N * M, "Number of arguments must match the size of the matrix");
     init(std::forward<Args>(args)...);
   }
 
-  static constexpr Mat<T, 4, 4> perspective(T aspect, T z_near, T z_far, T fov) {
-    Mat<T, 4, 4> matrix{};
-    T const fov_factor = tan((fov * static_cast<T>(std::numbers::pi) / static_cast<T>(180)) / static_cast<T>(2));
+  FORCE_INLINE float *operator[](size_t index) { return v[index]; }
 
-    matrix.v[0][0] = static_cast<T>(1) / (aspect * fov_factor);
-    matrix.v[1][1] = static_cast<T>(1) / (fov_factor);
-    matrix.v[2][2] = z_far / (z_far - z_near);
-    matrix.v[2][3] = static_cast<T>(1);
-    matrix.v[3][2] = -(z_far * z_near) / (z_far - z_near);
-    // matrix.v[3][2] = -z_near / z_near;
+  static constexpr Mat<T, 4, 4> InfinitePerspective(T aspect, T fov, T z_near) {
+    T const range = tan(fov / static_cast<T>(2)) * z_near;
+    T const right = range * aspect;
+    T const left = -right;
+    T const top = -range;
+    T const bottom = range;
+
+    Mat<T, 4, 4> matrix{};
+    matrix[0][0] = static_cast<T>(2) * z_near / (right - left);
+    matrix[1][1] = static_cast<T>(2) * z_near / (top - bottom);
+    matrix[2][2] = static_cast<T>(1);
+    matrix[2][3] = static_cast<T>(1);
+    matrix[3][2] = -z_near;
 
     return matrix;
   }
@@ -42,4 +51,8 @@ private:
     }
   }
 };
+
+// Common matrix specializations
+using Mat4f = Mat<float, 4, 4>;
+using Mat4d = Mat<double, 4, 4>;
 } // namespace craft

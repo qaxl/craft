@@ -1,5 +1,6 @@
 #include "mesh.hpp"
 
+#include "platform/window.hpp"
 #include "renderer.hpp"
 #include "world/chunk.hpp"
 
@@ -51,72 +52,117 @@ MeshBuffers UploadMesh(Renderer *renderer, VkDevice device, VmaAllocator allocat
   return mesh;
 }
 
+enum class MeshFace { Front, Back, Left, Right, Top, Bottom };
+
+static void AddQuad(const glm::vec3 top_left, const glm::vec3 right, const glm::vec3 bottom, glm::vec4 uv,
+                    std::vector<Vtx> &vertices, std::vector<uint32_t> &indices) {
+  uint32_t start_index = static_cast<uint32_t>(vertices.size());
+  glm::vec2 uv_coords[] = {{uv.x, uv.w}, {uv.z, uv.w}, {uv.x, uv.y}, {uv.z, uv.y}};
+
+  vertices.push_back(Vtx{.pos = top_left, .uv = uv_coords[0]});
+  vertices.push_back(Vtx{.pos = top_left + right, .uv = uv_coords[1]});
+  vertices.push_back(Vtx{.pos = top_left + bottom, .uv = uv_coords[2]});
+  vertices.push_back(Vtx{.pos = top_left + right + bottom, .uv = uv_coords[3]});
+
+  indices.push_back(start_index + 0);
+  indices.push_back(start_index + 2);
+  indices.push_back(start_index + 1);
+  indices.push_back(start_index + 1);
+  indices.push_back(start_index + 2);
+  indices.push_back(start_index + 3);
+}
+
+static void AddFace(MeshFace face, glm::vec3 pos, glm::vec3 size, glm::vec4 uv, std::vector<Vtx> &vertices,
+                    std::vector<uint32_t> &indices) {
+  switch (face) {
+  case MeshFace::Front:
+    AddQuad(pos + glm::vec3(0, size.y, 0), glm::vec3(size.x, 0, 0), glm::vec3(0, -size.y, 0), uv, vertices, indices);
+    break;
+  case MeshFace::Back:
+    AddQuad(pos + glm::vec3(0, size.y, size.z), glm::vec3(size.x, 0, 0), glm::vec3(0, -size.y, 0), uv, vertices,
+            indices);
+    break;
+  case MeshFace::Left:
+    AddQuad(pos + glm::vec3(0, size.y, 0), glm::vec3(0, 0, size.z), glm::vec3(0, -size.y, 0), uv, vertices, indices);
+    break;
+  case MeshFace::Right:
+    AddQuad(pos + glm::vec3(size.x, size.y, 0), glm::vec3(0, 0, size.z), glm::vec3(0, -size.y, 0), uv, vertices,
+            indices);
+    break;
+  case MeshFace::Top:
+    AddQuad(pos + glm::vec3(0, 0, 0), glm::vec3(size.x, 0, 0), glm::vec3(0, 0, size.z), uv, vertices, indices);
+    break;
+  case MeshFace::Bottom:
+    AddQuad(pos + glm::vec3(0, size.y, size.z), glm::vec3(size.x, 0, 0), glm::vec3(0, 0, -size.z), uv, vertices,
+            indices);
+    break;
+  }
+}
+
+static bool ShouldRender(Chunk *chunk, MeshFace face, int z, int x, int y) {
+  // TODO: implement this
+  // // Check bounds first
+  // if (z < 0 || x < 0 || y < 0 || z >= kMaxChunkDepth || x >= kMaxChunkWidth || y >= kMaxChunkHeight) {
+  //   return true;
+  // }
+
+  // // Check if neighboring block is air
+  // switch (face) {
+  // case MeshFace::Front:
+  //   return z + 1 >= kMaxChunkDepth || chunk->blocks[z + 1][x][y].block_type == BlockType::Air;
+  // case MeshFace::Back:
+  //   return z - 1 < 0 || chunk->blocks[z - 1][x][y].block_type == BlockType::Air;
+  // case MeshFace::Left:
+  //   return x - 1 < 0 || chunk->blocks[z][x - 1][y].block_type == BlockType::Air;
+  // case MeshFace::Right:
+  //   return x + 1 >= kMaxChunkWidth || chunk->blocks[z][x + 1][y].block_type == BlockType::Air;
+  // case MeshFace::Top:
+  //   return y + 1 >= kMaxChunkHeight || chunk->blocks[z][x][y + 1].block_type == BlockType::Air;
+  // case MeshFace::Bottom:
+  //   return y - 1 < 0 || chunk->blocks[z][x][y - 1].block_type == BlockType::Air;
+  // }
+  // return false;
+
+  return true;
+}
+
 ChunkMesh ChunkMesh::GenerateChunkMeshFromChunk(Chunk *chunk) {
   ChunkMesh mesh;
+  mesh.indices.reserve(1 << 20);
+  mesh.vertices.reserve(1 << 21);
 
-  uint32_t i = 0;
+  static constexpr glm::vec4 GRASS_TEXTURE = {64.0f / 512.0f, 32.0f / 512.0f, 96.0f / 512.0f, 64.0f / 512.0f};
+  static constexpr glm::vec4 DIRT_TEXTURE = {0.0f, 32.0f / 512.0f, 32.0f / 512.0f, 64.0f / 512.0f};
+  static constexpr glm::vec4 DIRT_WITH_GRASS = {32.0f / 512.0f, 32.0f / 512.0f, 64.0f / 512.0f, 64.0f / 512.0f};
+
   for (int z = 0; z < kMaxChunkDepth; ++z) {
     for (int x = 0; x < kMaxChunkWidth; ++x) {
       for (int y = 0; y < kMaxChunkHeight; ++y) {
-        if (chunk->blocks[z][x][y].block_type == BlockType::Dirt) {
-          glm::vec4 grass(64.0f / 512.0f, 32.0f / 512.0f, 96.0f / 512.0f, 64.0f / 512.0f);
-          glm::vec4 dirt(0.0f, 32.0f / 512.0f, 32.0f / 512.0f, 64.0f / 512.0f);
-          glm::vec4 dirt_with_grass(32.0f / 512.0f, 32.0f / 512.0f, 64.0f / 512.0f, 64.0f / 512.0f);
+        const auto &block = chunk->blocks[z][x][y];
+        if (block.block_type == BlockType::Air)
+          continue;
 
-          std::array<Vtx, 24> vertices{
-              // Front face (+Z)
-              Vtx{.pos = {1.0f - x, 0.0f - y, 1.0f - z}, .uv = {dirt_with_grass.z, dirt_with_grass.y}},
-              Vtx{.pos = {1.0f - x, 1.0f - y, 1.0f - z}, .uv = {dirt_with_grass.z, dirt_with_grass.w}},
-              Vtx{.pos = {0.0f - x, 0.0f - y, 1.0f - z}, .uv = {dirt_with_grass.x, dirt_with_grass.y}},
-              Vtx{.pos = {0.0f - x, 1.0f - y, 1.0f - z}, .uv = {dirt_with_grass.x, dirt_with_grass.w}},
+        glm::vec3 block_pos(-x, -y, -z);
+        glm::vec3 block_size(1, 1, 1);
 
-              // Back face (-Z)
-              Vtx{.pos = {0.0f - x, 0.0f - y, 0.0f - z}, .uv = {dirt_with_grass.z, dirt_with_grass.y}},
-              Vtx{.pos = {0.0f - x, 1.0f - y, 0.0f - z}, .uv = {dirt_with_grass.z, dirt_with_grass.w}},
-              Vtx{.pos = {1.0f - x, 0.0f - y, 0.0f - z}, .uv = {dirt_with_grass.x, dirt_with_grass.y}},
-              Vtx{.pos = {1.0f - x, 1.0f - y, 0.0f - z}, .uv = {dirt_with_grass.x, dirt_with_grass.w}},
+        BlockType current_type = block.block_type;
+        if (current_type == BlockType::Dirt) {
+          for (int face = 0; face < 6; face++) {
+            MeshFace current_face = static_cast<MeshFace>(face);
+            if (!ShouldRender(chunk, current_face, z, x, y))
+              continue;
 
-              // Left face (-X)
-              Vtx{.pos = {0.0f - x, 0.0f - y, 1.0f - z}, .uv = {dirt_with_grass.z, dirt_with_grass.y}},
-              Vtx{.pos = {0.0f - x, 1.0f - y, 1.0f - z}, .uv = {dirt_with_grass.z, dirt_with_grass.w}},
-              Vtx{.pos = {0.0f - x, 0.0f - y, 0.0f - z}, .uv = {dirt_with_grass.x, dirt_with_grass.y}},
-              Vtx{.pos = {0.0f - x, 1.0f - y, 0.0f - z}, .uv = {dirt_with_grass.x, dirt_with_grass.w}},
+            glm::vec4 tex_coords;
+            if (current_face == MeshFace::Top) {
+              tex_coords = GRASS_TEXTURE;
+            } else if (current_face == MeshFace::Bottom) {
+              tex_coords = DIRT_TEXTURE;
+            } else {
+              tex_coords = DIRT_WITH_GRASS;
+            }
 
-              // Right face (+X)
-              Vtx{.pos = {1.0f - x, 0.0f - y, 0.0f - z}, .uv = {dirt_with_grass.z, dirt_with_grass.y}},
-              Vtx{.pos = {1.0f - x, 1.0f - y, 0.0f - z}, .uv = {dirt_with_grass.z, dirt_with_grass.w}},
-              Vtx{.pos = {1.0f - x, 0.0f - y, 1.0f - z}, .uv = {dirt_with_grass.x, dirt_with_grass.y}},
-              Vtx{.pos = {1.0f - x, 1.0f - y, 1.0f - z}, .uv = {dirt_with_grass.x, dirt_with_grass.w}},
-
-              // Top face (+Y)
-              Vtx{.pos = {1.0f - x, 1.0f - y, 1.0f - z}, .uv = {dirt.z, dirt.y}},
-              Vtx{.pos = {1.0f - x, 1.0f - y, 0.0f - z}, .uv = {dirt.z, dirt.w}},
-              Vtx{.pos = {0.0f - x, 1.0f - y, 1.0f - z}, .uv = {dirt.x, dirt.y}},
-              Vtx{.pos = {0.0f - x, 1.0f - y, 0.0f - z}, .uv = {dirt.x, dirt.w}},
-
-              // Bottom face (-Y)
-              Vtx{.pos = {1.0f - x, 0.0f - y, 0.0f - z}, .uv = {grass.z, grass.y}},
-              Vtx{.pos = {1.0f - x, 0.0f - y, 1.0f - z}, .uv = {grass.z, grass.w}},
-              Vtx{.pos = {0.0f - x, 0.0f - y, 0.0f - z}, .uv = {grass.x, grass.y}},
-              Vtx{.pos = {0.0f - x, 0.0f - y, 1.0f - z}, .uv = {grass.x, grass.w}}};
-
-          mesh.vertices.insert(mesh.vertices.end(), vertices.begin(), vertices.end());
-
-          std::array<uint32_t, 36> indices{// Front face
-                                           0 + i, 1 + i, 2 + i, 1 + i, 3 + i, 2 + i,
-                                           // Back face
-                                           4 + i, 5 + i, 6 + i, 5 + i, 7 + i, 6 + i,
-                                           // Left face
-                                           8 + i, 9 + i, 10 + i, 9 + i, 11 + i, 10 + i,
-                                           // Right face
-                                           12 + i, 13 + i, 14 + i, 13 + i, 15 + i, 14 + i,
-                                           // Top face
-                                           16 + i, 17 + i, 18 + i, 17 + i, 19 + i, 18 + i,
-                                           // Bottom face
-                                           20 + i, 21 + i, 22 + i, 21 + i, 23 + i, 22 + i};
-          i += 24;
-
-          mesh.indices.insert(mesh.indices.end(), indices.begin(), indices.end());
+            AddFace(current_face, block_pos, block_size, tex_coords, mesh.vertices, mesh.indices);
+          }
         }
       }
     }

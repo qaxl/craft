@@ -77,7 +77,7 @@ App::App() {
         "framework that the current application is running from https://github.com/qaxl/craft :)");
   }
   m_chunk = std::make_unique<Chunk>();
-  GenerateChunk(10.0f, m_noise, *m_chunk);
+  GenerateChunk(false, 10.0f, m_noise, *m_chunk);
 
   m_window = std::make_shared<Window>(1024, 768, "test");
   m_renderer = std::make_shared<vk::Renderer>(m_window, m_camera, *m_chunk);
@@ -85,7 +85,8 @@ App::App() {
   m_widget_manager = std::make_shared<WidgetManager>();
   m_widget_manager->AddWidget(std::make_unique<UtilWidget>());
   m_widget_manager->AddWidget(std::make_unique<RenderTimingsWidget>(&time_taken_to_render));
-  m_widget_manager->AddWidget(std::make_unique<TerrainWidget>(m_regenerate, m_noise));
+  m_widget_manager->AddWidget(std::make_unique<TerrainWidget>(m_regenerate, m_noise, m_regenerate_with_one_block,
+                                                              m_scale_factor, m_max_height));
   // m_widget_manager->AddWidget(std::make_unique<BackgroundSettingsWidget>(m_renderer));
 
   // std::cout << "Hi, " << SteamFriends()->GetPersonaName() << "!" << std::endl;
@@ -127,6 +128,7 @@ App::App() {
 bool App::Run() {
   uint64_t start_tick = SDL_GetTicksNS();
   uint64_t end_tick = SDL_GetTicksNS();
+  uint64_t stop = SDL_GetTicksNS();
 
   bool camera_enabled = true;
 
@@ -159,9 +161,11 @@ bool App::Run() {
 
     m_window->PollEvents();
 
-    if (m_window->IsKeyPressed(KeyboardKey::Tab)) {
+    // FIXME: temporary fix to make the tab button work properly
+    if (m_window->IsKeyPressed(KeyboardKey::Tab) && (SDL_GetTicksNS() - stop) > 1e9) {
       m_window->ToggleRelativeMouseMode();
       camera_enabled = !camera_enabled;
+      stop = SDL_GetTicksNS();
     }
 
     if (camera_enabled) {
@@ -199,7 +203,7 @@ bool App::Run() {
     }
 
     if (m_regenerate) {
-      GenerateChunk(12.0f, m_noise, *m_chunk);
+      GenerateChunk(m_regenerate_with_one_block, m_max_height, m_noise, *m_chunk, m_scale_factor);
       m_renderer->InitDefaultData();
       m_regenerate = false;
     }

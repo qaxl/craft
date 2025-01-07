@@ -7,7 +7,6 @@ namespace craft {
 enum class BlockType : uint8_t {
   Air,
   Dirt,
-  Lava,
 };
 
 struct Block {

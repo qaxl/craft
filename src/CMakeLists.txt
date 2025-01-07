@@ -16,7 +16,7 @@ add_executable(craft
   util/error.cpp)
 
 target_include_directories(craft PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(craft PRIVATE SDL3::SDL3 GPUOpen::VulkanMemoryAllocator volk glad imgui ws2_32 glm single_header)
+target_link_libraries(craft PRIVATE SDL3::SDL3 GPUOpen::VulkanMemoryAllocator volk imgui ws2_32 glm single_header)
 
 if (BUILD_WITH_STEAMSDK)
   target_link_libraries(craft PRIVATE steamworks)

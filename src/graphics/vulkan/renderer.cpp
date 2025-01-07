@@ -265,8 +265,19 @@ Renderer::Renderer(std::shared_ptr<Window> window, Camera const &camera, Chunk &
   InitPipelines();
   InitDefaultData();
 
+  std::array<Vtx, 4> vertices = {
+      Vtx{.pos = {m_draw_extent.width / 2 - 5, m_draw_extent.height / 2 - 5, 0}, .uv = {0, 0}},
+      Vtx{.pos = {m_draw_extent.width / 2 + 5, m_draw_extent.height / 2 - 5, 0}, .uv = {1, 0}},
+      Vtx{.pos = {m_draw_extent.width / 2 - 5, m_draw_extent.height / 2 + 5, 0}, .uv = {0, 1}},
+      Vtx{.pos = {m_draw_extent.width / 2 + 5, m_draw_extent.height / 2 + 5, 0}, .uv = {1, 1}},
+  };
+  std::array<uint32_t, 6> indices = {0, 2, 1, 1, 2, 3};
+
+  m_crosshair_texture = std::make_shared<Texture>(m_allocator, m_device, this, "textures/crosshair.png");
+  m_crosshair_mesh = UploadMesh(this, m_device.GetDevice(), m_allocator, indices, vertices);
+
   m_texture = std::make_shared<Texture>(m_allocator, m_device, this, "textures/spritesheet_blocks.png");
-  UpdateTexturedMeshDescriptors();
+  // UpdateTexturedMeshDescriptors();
   m_imgui = ImGui{m_instance, m_window, &m_device};
 }
 
@@ -555,22 +566,43 @@ void Renderer::DrawGeometry(VkCommandBuffer cmd, AllocatedImage &render_target, 
 
   vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_textured_mesh_pipeline);
 
-  DrawPushConstants push_constants;
-  push_constants.vertex_buffer = m_mesh.vertex_addr;
-  push_constants.projection =
-      glm::infinitePerspectiveLH_ZO(glm::radians(45.0f),
-                                    static_cast<float>(m_draw_extent.width) / static_cast<float>(m_draw_extent.height),
-                                    0.1f) *
-      m_camera.ViewMatrix();
+  {
+    DrawPushConstants push_constants;
+    push_constants.vertex_buffer = m_mesh.vertex_addr;
+    push_constants.projection = glm::infinitePerspectiveLH_ZO(m_camera.GetFov(),
+                                                              static_cast<float>(m_draw_extent.width) /
+                                                                  static_cast<float>(m_draw_extent.height),
+                                                              0.1f) *
+                                m_camera.ViewMatrix();
 
-  vkCmdPushConstants(cmd, m_textured_mesh_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(DrawPushConstants),
-                     &push_constants);
-  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_textured_mesh_pipeline_layout, 0, 1,
-                          &m_textured_mesh_descriptor_set, 0, nullptr);
+    vkCmdPushConstants(cmd, m_textured_mesh_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(DrawPushConstants),
+                       &push_constants);
 
-  vkCmdBindIndexBuffer(cmd, m_mesh.index.buffer, 0, VK_INDEX_TYPE_UINT32);
+    UpdateTexturedMeshDescriptors(m_texture);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_textured_mesh_pipeline_layout, 0, 1,
+                            &m_textured_mesh_descriptor_set, 0, nullptr);
 
-  vkCmdDrawIndexed(cmd, m_mesh.index.info.size / 4, 1, 0, 0, 0);
+    vkCmdBindIndexBuffer(cmd, m_mesh.index.buffer, 0, VK_INDEX_TYPE_UINT32);
+    vkCmdDrawIndexed(cmd, m_mesh.index.info.size / 4, 1, 0, 0, 0);
+  }
+  // FIXME: This is a temporary hack to draw the crosshair, which doesn't even work lol.
+  // {
+  //   DrawPushConstants push_constants;
+  //   push_constants.vertex_buffer = m_crosshair_mesh.vertex_addr;
+  //   push_constants.projection = glm::orthoLH_ZO(0.0f, static_cast<float>(m_draw_extent.width),
+  //                                               static_cast<float>(m_draw_extent.height), 0.0f, 0.1f, 1.0f);
+
+  //   vkCmdPushConstants(cmd, m_textured_mesh_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
+  //   sizeof(DrawPushConstants),
+  //                      &push_constants);
+
+  //   UpdateTexturedMeshDescriptors(m_crosshair_texture);
+  //   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_textured_mesh_pipeline_layout, 0, 1,
+  //                           &m_textured_mesh_descriptor_set, 0, nullptr);
+
+  //   vkCmdBindIndexBuffer(cmd, m_crosshair_mesh.index.buffer, 0, VK_INDEX_TYPE_UINT32);
+  //   vkCmdDrawIndexed(cmd, m_crosshair_mesh.index.info.size / 4, 1, 0, 0, 0);
+  // }
 
   vkCmdEndRendering(cmd);
 }
@@ -597,7 +629,7 @@ void Renderer::InitTriangleMeshPipeline() {
   builder.SetShaders(*triangle_vertex, *triangle_fragment);
   builder.SetInputTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
   builder.SetPolygonMode(VK_POLYGON_MODE_FILL);
-  builder.SetCullMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
+  builder.SetCullMode(VK_CULL_MODE_FRONT_BIT, VK_FRONT_FACE_CLOCKWISE);
   builder.DisableMSAA();
   builder.DisableBlending();
   builder.EnableDepthTest();
@@ -638,7 +670,7 @@ void Renderer::InitTexturedMeshPipeline() {
   builder.SetShaders(*vertex, *fragment);
   builder.SetInputTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
   builder.SetPolygonMode(VK_POLYGON_MODE_FILL);
-  builder.SetCullMode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+  builder.SetCullMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
   builder.DisableMSAA();
   builder.DisableBlending();
   builder.EnableDepthTest();
@@ -666,11 +698,11 @@ void Renderer::InitDefaultData() {
   std::cout << m_mesh.index.info.size / 4 << ',' << mesh.indices.size() << std::endl;
 }
 
-void Renderer::UpdateTexturedMeshDescriptors() {
+void Renderer::UpdateTexturedMeshDescriptors(std::shared_ptr<Texture> texture) {
   VkDescriptorImageInfo image_info{};
   image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-  image_info.imageView = m_texture->GetView();
-  image_info.sampler = m_texture->GetSampler();
+  image_info.imageView = texture->GetView();
+  image_info.sampler = texture->GetSampler();
 
   VkWriteDescriptorSet descriptor_write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
   descriptor_write.descriptorCount = 1;

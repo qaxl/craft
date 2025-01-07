@@ -19,6 +19,9 @@ class App {
   Camera m_camera;
   FastNoiseLite m_noise;
   bool m_regenerate = false;
+  bool m_regenerate_with_one_block = false;
+  float m_scale_factor = 10.0f;
+  float m_max_height = 10.0f;
 
   float time_taken_to_render = 0;
 

@@ -27,6 +27,7 @@ public:
       : m_front{glm::vec3(0.0f, 0.0f, -1.0f)}, m_position{position}, m_world_up{up}, m_yaw{yaw}, m_pitch{pitch} {}
 
   glm::mat4 ViewMatrix() const { return glm::lookAtLH(m_position, m_position + m_front, m_up); }
+  float GetFov() const { return m_fov; }
 
   void ProcessKeyboard(CameraMovement direction, float delta) {
     float velocity = m_movement_speed * delta;

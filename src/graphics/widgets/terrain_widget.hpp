@@ -8,15 +8,22 @@
 namespace craft {
 class TerrainWidget : public Widget {
 public:
-  TerrainWidget(bool &regenerate, FastNoiseLite &noise) : m_regenerate{regenerate}, m_noise{noise} {
+  TerrainWidget(bool &regenerate, FastNoiseLite &noise, bool &regenerate_with_one_block, float &scale_factor,
+                float &max_height)
+      : m_regenerate{regenerate}, m_noise{noise}, m_regenerate_with_one_block{regenerate_with_one_block},
+        m_scale_factor{scale_factor}, m_max_height{max_height} {
     m_name = "Terrain";
-    m_closable = false;
+    m_closable = true;
   }
 
   virtual void OnRender(WidgetManager *manager) override {
     static const char *items[6] = {"OpenSimplex2", "OpenSimplex2S", "Cellular", "Perlin", "ValueCubic", "Value"};
     ImGui::Combo("Noise Type", &m_current_item, items, 6);
     ImGui::InputInt("Seed", &m_seed);
+    ImGui::InputFloat("Scale Factor", &m_scale_factor);
+    ImGui::InputFloat("Max Height", &m_max_height);
+    ImGui::Checkbox("Only generate a single block (only useful for testing if a mesh is drawn successfully)",
+                    &m_regenerate_with_one_block);
 
     if (ImGui::Button("Generate Chunk")) {
       m_noise.SetSeed(m_seed);
@@ -30,5 +37,8 @@ private:
   FastNoiseLite &m_noise;
   int m_current_item = 0;
   int m_seed = 0;
+  bool &m_regenerate_with_one_block;
+  float &m_scale_factor;
+  float &m_max_height;
 };
 } // namespace craft

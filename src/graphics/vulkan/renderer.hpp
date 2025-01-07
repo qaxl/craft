@@ -124,7 +124,7 @@ private:
   void InitImmediateSubmit();
 
   void InitTexturedMeshPipeline();
-  void UpdateTexturedMeshDescriptors();
+  void UpdateTexturedMeshDescriptors(std::shared_ptr<Texture> texture);
 
   void DrawBackground(VkCommandBuffer cmd);
   void DrawGeometry(VkCommandBuffer cmd, AllocatedImage &render_target, AllocatedImage &depth_buffer);
@@ -148,6 +148,7 @@ private:
 
   VkSurfaceKHR m_surface;
   std::shared_ptr<Texture> m_texture;
+  std::shared_ptr<Texture> m_crosshair_texture;
 
   uint32_t m_frame_number = 0;
   std::array<FrameData, kMaxFramesInFlight> m_frames;
@@ -183,6 +184,7 @@ private:
   VkPipeline m_textured_mesh_pipeline;
 
   MeshBuffers m_mesh{};
+  MeshBuffers m_crosshair_mesh{};
 
   ImmediateSubmit m_imm;
   DescriptorAllocator m_dallocator;

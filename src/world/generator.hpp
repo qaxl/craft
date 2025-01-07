@@ -7,8 +7,14 @@
 #include <iostream>
 
 namespace craft {
-inline void GenerateChunk(float max_generated_height, FastNoiseLite &noise, Chunk &out, float scale = 10.0f) {
+inline void GenerateChunk(bool generate_only_one_block, float max_generated_height, FastNoiseLite &noise, Chunk &out,
+                          float scale = 10.0f) {
   memset(out.blocks, 0, sizeof(out.blocks));
+  if (generate_only_one_block) {
+    out.blocks[0][0][0].block_type = BlockType::Dirt;
+    return;
+  }
+
 #pragma omp parallel for
   for (int z = 0; z < kMaxChunkDepth; ++z) {
     for (int x = 0; x < kMaxChunkWidth; ++x) {
