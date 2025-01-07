@@ -18,12 +18,29 @@ Custom Voxel Engine in C++ with Vulkan
 
 More features will come, as they will be implemented. I'll try my best listing them all here.
 
+## Controls
+
+- WASD for moving
+- Tab for toggling mouse access
+- ...
+
 ## Building
 
-Build with CMake. All libraries are included inside the repository. Clone with:
+All compilers should be supported, but no guarantee is given on MSVC. I only test every build with Clang, so G++ support isn't guaranteed either.
+
+All libraries are included within the repository. Clone with:
 
 ```sh
 git clone --recursive https://github.com/qaxl/craft
+```
+
+Building with CMake (platform-agnostic):
+
+```sh
+# Create build directory, you can call this whatever.
+mkdir build && cd build
+# Generate project files and build the program.
+cmake .. && cmake --build .
 ```
 
 ## Platforms Supported
