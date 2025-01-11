@@ -7,8 +7,8 @@
 #include <imgui_impl_vulkan.h>
 
 namespace craft::vk {
-ImGui::ImGui(VkInstance instance, std::shared_ptr<Window> window, Device *device)
-    : m_instance{instance}, m_device{device} {
+ImGui::ImGui(std::shared_ptr<Window> window, Device *device, Swapchain *swapchain)
+    : m_instance{device->GetInstance()}, m_device{device} {
   VkDescriptorPoolSize pool_sizes[] = {
       {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1},
   };
@@ -30,14 +30,13 @@ ImGui::ImGui(VkInstance instance, std::shared_ptr<Window> window, Device *device
   // TODO: get real format
   VkFormat format = VK_FORMAT_R16G16B16A16_SFLOAT;
   ImGui_ImplVulkan_InitInfo init_info{
-      .Instance = instance,
+      .Instance = m_instance,
       .PhysicalDevice = m_device->GetPhysicalDevice(),
       .Device = m_device->GetDevice(),
       .Queue = m_device->GetGraphicsQueue(),
       .DescriptorPool = m_pool,
-      .MinImageCount = kMinFramesInFlight,
-      // TODO: get the real frame count?
-      .ImageCount = kMaxFramesInFlight,
+      .MinImageCount = swapchain->GetImageCount(),
+      .ImageCount = swapchain->GetImageCount(),
       .MSAASamples = VK_SAMPLE_COUNT_1_BIT,
       .UseDynamicRendering = true,
       .PipelineRenderingCreateInfo = {VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO, nullptr, 0, 1, &format},

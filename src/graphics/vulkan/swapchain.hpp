@@ -35,13 +35,14 @@ public:
   FORCE_INLINE VkImage GetCurrentImage() { return m_images[m_current_index]; }
   FORCE_INLINE VkImageView GetCurrentView() { return m_views[m_current_index]; }
   FORCE_INLINE uint32_t GetCurrentImageIndex() { return m_current_index; }
+  FORCE_INLINE uint32_t GetImageCount() { return m_images.size(); }
 
   AcquiredImage AcquireNextImage(VkSemaphore wait_semaphore = nullptr, uint64_t wait_time_ns = 1 * 1000 * 1000);
 
   void Resize(uint32_t width, uint32_t height);
 
 private:
-  void CreateSwapchain();
+  void CreateSwapchain(VkSwapchainKHR swapchain = nullptr);
   void Cleanup();
 
 private:

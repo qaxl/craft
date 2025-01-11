@@ -20,7 +20,9 @@ inline glm::vec3 &operator+(const Vec3f &v, glm::vec3 &o) {
 
 inline glm::vec3 IntoGLM(Vec4f vec) { return glm::vec3(vec.v[0][0], vec.v[0][1], vec.v[0][2]); }
 
-using Rect = Vec4f;
+struct Rect {
+  float x, y, w, h;
+};
 
 // TODO: specializations of Rgba8, if needed
 using Rgba8 = Vec<int, 4>;

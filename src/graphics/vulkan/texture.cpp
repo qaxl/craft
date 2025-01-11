@@ -66,11 +66,11 @@ Texture::Texture(VmaAllocator allocator, Device &device, Renderer *renderer, con
                                            VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
                                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, m_image));
     vkCmdCopyBufferToImage(cmd, staging.buffer, m_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &img_copy);
-    // This honestly probably should be VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, but we can't do that on transfer queue.
     TransitionImage(cmd, ImageTransitionBarrier(VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
-                                                VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_SHADER_READ_BIT,
+                                                VK_PIPELINE_STAGE_2_NONE, VK_ACCESS_2_NONE,
                                                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, m_image));
+                                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, m_image,
+                                                device.GetTransferQueueFamily(), device.GetGraphicsQueueFamily()));
   });
 
   DestroyBuffer(allocator, std::move(staging));

@@ -30,80 +30,74 @@ constexpr DeviceFeatures const kDeviceFeatures = DeviceFeatures{
         },
 };
 
+static VmaAllocator CreateAllocator(Device *device) {
+  VmaVulkanFunctions funcs{.vkGetInstanceProcAddr = vkGetInstanceProcAddr, .vkGetDeviceProcAddr = vkGetDeviceProcAddr};
+
+  VmaAllocatorCreateInfo allocator_info{};
+  allocator_info.physicalDevice = device->GetPhysicalDevice();
+  allocator_info.device = device->GetDevice();
+  allocator_info.instance = device->GetInstance();
+  allocator_info.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
+  allocator_info.pVulkanFunctions = &funcs;
+
+  VmaAllocator allocator;
+  VK_CHECK(vmaCreateAllocator(&allocator_info, &allocator));
+
+  return allocator;
+}
+
 Renderer::Renderer(std::shared_ptr<Window> window, Camera const &camera, Chunk &chunk)
     : m_window{window}, m_camera{camera}, m_chunk{chunk}, m_instance{},
       m_device{m_instance.GetInstance(), {DeviceExtension{VK_KHR_SWAPCHAIN_EXTENSION_NAME}}, &kDeviceFeatures},
       m_surface{m_window->CreateSurface(m_instance.GetInstance())}, m_draw_extent{m_window->GetExtent()},
-      m_swapchain{&m_device, m_surface, m_draw_extent} {
+      m_swapchain{&m_device, m_surface, m_draw_extent},
+      m_allocator{CreateAllocator(&m_device), [](VmaAllocator a) { vmaDestroyAllocator(a); }} {
 
-  VmaVulkanFunctions funcs{.vkGetInstanceProcAddr = vkGetInstanceProcAddr, .vkGetDeviceProcAddr = vkGetDeviceProcAddr};
-
-  VmaAllocatorCreateInfo allocator_info{};
-  allocator_info.physicalDevice = m_device.GetPhysicalDevice();
-  allocator_info.device = m_device.GetDevice();
-  allocator_info.instance = m_instance.GetInstance();
-  allocator_info.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
-  allocator_info.pVulkanFunctions = &funcs;
-
-  VK_CHECK(vmaCreateAllocator(&allocator_info, &m_allocator));
+  m_frames.resize(m_swapchain.GetImageCount());
 
   for (auto &frame : m_frames) {
-    frame.render_target = AllocatedImage{m_device.GetDevice(), m_allocator, m_draw_extent,
+    frame.render_target = AllocatedImage{m_device.GetDevice(), *m_allocator, m_draw_extent,
                                          VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
                                              VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT};
 
-    frame.depth_buffer = AllocatedImage{m_device.GetDevice(), m_allocator, m_draw_extent,
+    frame.depth_buffer = AllocatedImage{m_device.GetDevice(), *m_allocator, m_draw_extent,
                                         VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_FORMAT_D32_SFLOAT};
   }
 
   InitCommands();
   InitSyncStructures();
-  // InitDescriptors();
   InitPipelines();
   InitDefaultData();
 
   std::array<Vtx, 4> vertices = {
-      Vtx{.pos = {m_draw_extent.width / 2 - 5, m_draw_extent.height / 2 - 5, 0}, .uv = {0, 0}},
-      Vtx{.pos = {m_draw_extent.width / 2 + 5, m_draw_extent.height / 2 - 5, 0}, .uv = {1, 0}},
-      Vtx{.pos = {m_draw_extent.width / 2 - 5, m_draw_extent.height / 2 + 5, 0}, .uv = {0, 1}},
-      Vtx{.pos = {m_draw_extent.width / 2 + 5, m_draw_extent.height / 2 + 5, 0}, .uv = {1, 1}},
+      Vtx{.pos = {m_draw_extent.width / 2 - 15, m_draw_extent.height / 2 - 15, 1}, .uv = {0, 0}},
+      Vtx{.pos = {m_draw_extent.width / 2 - 15, m_draw_extent.height / 2 + 15, 1}, .uv = {0, 16.0f / 512.0f}},
+      Vtx{.pos = {m_draw_extent.width / 2 + 15, m_draw_extent.height / 2 + 15, 1},
+          .uv = {16.0f / 512.0f, 16.0f / 512.0f}},
+      Vtx{.pos = {m_draw_extent.width / 2 + 15, m_draw_extent.height / 2 - 15, 1}, .uv = {16.0f / 512.0f, 0}},
   };
-  std::array<uint32_t, 6> indices = {0, 2, 1, 1, 2, 3};
+  std::array<uint32_t, 6> indices = {0, 1, 3, 1, 2, 3};
 
-  m_crosshair_texture = std::make_shared<Texture>(m_allocator, m_device, this, "textures/crosshair.png");
-  m_crosshair_mesh = UploadMesh(this, m_device.GetDevice(), m_allocator, indices, vertices);
+  m_crosshair_texture = std::make_shared<Texture>(*m_allocator, m_device, this, "textures/crosshair.png");
+  m_crosshair_mesh = UploadMesh(this, m_device.GetDevice(), *m_allocator, indices, vertices);
 
-  m_texture = std::make_shared<Texture>(m_allocator, m_device, this, "textures/spritesheet_blocks.png");
-  // UpdateTexturedMeshDescriptors();
-  m_imgui = ImGui{m_instance.GetInstance(), m_window, &m_device};
+  m_texture = std::make_shared<Texture>(*m_allocator, m_device, this, "textures/spritesheet_blocks.png");
+  m_imgui = ImGui{m_window, &m_device, &m_swapchain};
 
-  m_destructor.allocator = m_allocator;
-  m_destructor.renderer = this;
-  m_destructor.surface = m_surface;
+  UpdateTexturedMeshDescriptors(m_texture);
 }
 
 Renderer::~Renderer() {
   m_device.WaitIdle();
 
-  DestroyBuffer(m_allocator, std::move(m_mesh.index));
-  DestroyBuffer(m_allocator, std::move(m_mesh.vertex));
+  DestroyBuffer(*m_allocator, std::move(m_mesh.index));
+  DestroyBuffer(*m_allocator, std::move(m_mesh.vertex));
 
   vkDestroyPipelineLayout(m_device.GetDevice(), m_textured_mesh_pipeline_layout, nullptr);
   vkDestroyPipeline(m_device.GetDevice(), m_textured_mesh_pipeline, nullptr);
 
   vkDestroyDescriptorSetLayout(m_device.GetDevice(), m_textured_mesh_descriptor_layout, nullptr);
   m_dallocator.DestroyPool(m_device.GetDevice());
-
-  // vkDestroyPipelineLayout(m_device.GetDevice(), m_triangle_pipeline_layout, nullptr);
-  // vkDestroyPipeline(m_device.GetDevice(), m_triangle_pipeline, nullptr);
-
-  // vkDestroyPipelineLayout(m_device.GetDevice(), m_gradient_pipeline_layout, nullptr);
-  // for (auto &bg_effect : m_bg_effects) {
-  //   vkDestroyPipeline(m_device.GetDevice(), bg_effect.pipeline, nullptr);
-  // }
-
-  // m_descriptor_allocator.DestroyPool(m_device.GetDevice());
-  // vkDestroyDescriptorSetLayout(m_device.GetDevice(), m_draw_image_descriptor_layout, nullptr);
 
   for (auto &frame : m_frames) {
     vkDestroyFence(m_device.GetDevice(), frame.fe_render, nullptr);
@@ -112,8 +106,6 @@ Renderer::~Renderer() {
 
     vkDestroyCommandPool(m_device.GetDevice(), frame.command_pool, nullptr);
   }
-
-  // vkDestroySurfaceKHR(m_instance.GetInstance(), m_surface, nullptr);
 }
 
 void Renderer::Draw() {
@@ -137,7 +129,6 @@ void Renderer::Draw() {
   VkImageView view = res.view;
 
   VkCommandBuffer cmd = frame.command_buffer;
-  // VK_CHECK(vkResetCommandBuffer(cmd, 0));
   VK_CHECK(vkResetCommandPool(m_device.GetDevice(), frame.command_pool, 0));
 
   VkCommandBufferBeginInfo cmd_begin_info{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
@@ -205,20 +196,15 @@ void Renderer::InitCommands() {
   VkCommandPoolCreateInfo create_info{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
   create_info.queueFamilyIndex = m_device.GetGraphicsQueueFamily();
 
-  for (size_t i = 0; i < kMaxFramesInFlight; ++i) {
-    VK_CHECK(vkCreateCommandPool(m_device.GetDevice(), &create_info, nullptr, &m_frames[i].command_pool));
+  for (auto &frame : m_frames) {
+    VK_CHECK(vkCreateCommandPool(m_device.GetDevice(), &create_info, nullptr, &frame.command_pool));
 
     VkCommandBufferAllocateInfo alloc_info{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
-    alloc_info.commandPool = m_frames[i].command_pool;
+    alloc_info.commandPool = frame.command_pool;
     alloc_info.commandBufferCount = 1;
     alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 
-    VK_CHECK(vkAllocateCommandBuffers(m_device.GetDevice(), &alloc_info, &m_frames[i].command_buffer));
-
-    // TODO: Yeah we can add the render_targets here, why not?
-    // m_frames[i].render_target = AllocatedImage{m_device.GetDevice(), m_allocator, m_draw_extent,
-    //                                            VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-    //                                                VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT};
+    VK_CHECK(vkAllocateCommandBuffers(m_device.GetDevice(), &alloc_info, &frame.command_buffer));
   }
 }
 
@@ -234,21 +220,10 @@ void Renderer::InitSyncStructures() {
   }
 }
 
-void Renderer::InitDescriptors() {}
-
-void Renderer::UpdateDrawImageDescriptors() { throw "no"; }
-
-void Renderer::InitPipelines() {
-  // InitTrianglePipeline();
-  // InitTriangleMeshPipeline();
-  InitTexturedMeshPipeline();
-}
-
-void Renderer::InitBackgroundPipelines() {}
+void Renderer::InitPipelines() { InitTexturedMeshPipeline(); }
 
 void Renderer::InitImmediateSubmit() {
   VkCommandPoolCreateInfo create_info{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
-  // create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
   // TODO: dynamic
   create_info.queueFamilyIndex = m_device.GetTransferQueueFamily();
   VK_CHECK(vkCreateCommandPool(m_device.GetDevice(), &create_info, nullptr, &m_imm.pool));
@@ -289,38 +264,6 @@ void Renderer::SubmitNow(std::function<void(VkCommandBuffer)> f) {
 
   VK_CHECK(vkQueueSubmit2(m_device.GetTransferQueue(), 1, &submit, m_imm.fence));
   VK_CHECK(vkWaitForFences(m_device.GetDevice(), 1, &m_imm.fence, VK_TRUE, 1000'000'000));
-}
-
-void Renderer::CreateDrawImage(VkExtent2D extent) {}
-
-void Renderer::InitTrianglePipeline() {
-  auto triangle_vertex = LoadShaderModule("./shaders/triangle.vert.spv", m_device.GetDevice());
-  auto triangle_fragment = LoadShaderModule("./shaders/triangle.frag.spv", m_device.GetDevice());
-
-  if (!triangle_vertex || !triangle_fragment) {
-    RuntimeError::Throw("Couldn't load triangle shaders!");
-  }
-
-  VkPipelineLayoutCreateInfo layout_info{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-  VK_CHECK(vkCreatePipelineLayout(m_device.GetDevice(), &layout_info, nullptr, &m_triangle_pipeline_layout));
-
-  GraphicsPipelineBuilder builder;
-
-  builder.pipeline_layout = m_triangle_pipeline_layout;
-  builder.SetShaders(*triangle_vertex, *triangle_fragment);
-  builder.SetInputTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-  builder.SetPolygonMode(VK_POLYGON_MODE_FILL);
-  builder.SetCullMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
-  builder.DisableMSAA();
-  builder.DisableBlending();
-  builder.EnableDepthTest();
-
-  builder.SetColorAttachmentFormat(m_frames[0].render_target.format);
-
-  m_triangle_pipeline = builder.Build(m_device.GetDevice());
-
-  vkDestroyShaderModule(m_device.GetDevice(), *triangle_vertex, nullptr);
-  vkDestroyShaderModule(m_device.GetDevice(), *triangle_fragment, nullptr);
 }
 
 void Renderer::DrawGeometry(VkCommandBuffer cmd, AllocatedImage &render_target, AllocatedImage &depth_buffer) {
@@ -373,68 +316,27 @@ void Renderer::DrawGeometry(VkCommandBuffer cmd, AllocatedImage &render_target, 
     vkCmdPushConstants(cmd, m_textured_mesh_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(DrawPushConstants),
                        &push_constants);
 
-    UpdateTexturedMeshDescriptors(m_texture);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_textured_mesh_pipeline_layout, 0, 1,
                             &m_textured_mesh_descriptor_set, 0, nullptr);
 
     vkCmdBindIndexBuffer(cmd, m_mesh.index.buffer, 0, VK_INDEX_TYPE_UINT32);
     vkCmdDrawIndexed(cmd, m_mesh.index.info.size / 4, 1, 0, 0, 0);
   }
-  // FIXME: This is a temporary hack to draw the crosshair, which doesn't even work lol.
-  // {
-  //   DrawPushConstants push_constants;
-  //   push_constants.vertex_buffer = m_crosshair_mesh.vertex_addr;
-  //   push_constants.projection = glm::orthoLH_ZO(0.0f, static_cast<float>(m_draw_extent.width),
-  //                                               static_cast<float>(m_draw_extent.height), 0.0f, 0.1f, 1.0f);
+  // FIXME: This is a temporary hack to draw the crosshair
+  {
+    DrawPushConstants push_constants;
+    push_constants.vertex_buffer = m_crosshair_mesh.vertex_addr;
+    push_constants.projection = glm::orthoLH_ZO(0.0f, static_cast<float>(m_draw_extent.width),
+                                                static_cast<float>(m_draw_extent.height), 0.0f, 0.1f, 10.0f);
 
-  //   vkCmdPushConstants(cmd, m_textured_mesh_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
-  //   sizeof(DrawPushConstants),
-  //                      &push_constants);
+    vkCmdPushConstants(cmd, m_textured_mesh_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(DrawPushConstants),
+                       &push_constants);
 
-  //   UpdateTexturedMeshDescriptors(m_crosshair_texture);
-  //   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_textured_mesh_pipeline_layout, 0, 1,
-  //                           &m_textured_mesh_descriptor_set, 0, nullptr);
-
-  //   vkCmdBindIndexBuffer(cmd, m_crosshair_mesh.index.buffer, 0, VK_INDEX_TYPE_UINT32);
-  //   vkCmdDrawIndexed(cmd, m_crosshair_mesh.index.info.size / 4, 1, 0, 0, 0);
-  // }
-
-  vkCmdEndRendering(cmd);
-}
-
-void Renderer::InitTriangleMeshPipeline() {
-  auto triangle_vertex = LoadShaderModule("./shaders/triangle_mesh.vert.spv", m_device.GetDevice());
-  auto triangle_fragment = LoadShaderModule("./shaders/triangle_mesh.frag.spv", m_device.GetDevice());
-
-  if (!triangle_vertex || !triangle_fragment) {
-    RuntimeError::Throw("Couldn't load triangle shaders!");
+    vkCmdBindIndexBuffer(cmd, m_crosshair_mesh.index.buffer, 0, VK_INDEX_TYPE_UINT32);
+    vkCmdDrawIndexed(cmd, m_crosshair_mesh.index.info.size / 4, 1, 0, 0, 0);
   }
 
-  VkPushConstantRange buffer_range{.stageFlags = VK_SHADER_STAGE_VERTEX_BIT, .size = sizeof(DrawPushConstants)};
-
-  VkPipelineLayoutCreateInfo layout_info{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-  layout_info.pushConstantRangeCount = 1;
-  layout_info.pPushConstantRanges = &buffer_range;
-
-  VK_CHECK(vkCreatePipelineLayout(m_device.GetDevice(), &layout_info, nullptr, &m_triangle_mesh_pipeline_layout));
-
-  GraphicsPipelineBuilder builder;
-
-  builder.pipeline_layout = m_triangle_mesh_pipeline_layout;
-  builder.SetShaders(*triangle_vertex, *triangle_fragment);
-  builder.SetInputTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-  builder.SetPolygonMode(VK_POLYGON_MODE_FILL);
-  builder.SetCullMode(VK_CULL_MODE_FRONT_BIT, VK_FRONT_FACE_CLOCKWISE);
-  builder.DisableMSAA();
-  builder.DisableBlending();
-  builder.EnableDepthTest();
-
-  builder.SetColorAttachmentFormat(m_frames[0].render_target.format);
-
-  m_triangle_mesh_pipeline = builder.Build(m_device.GetDevice());
-
-  vkDestroyShaderModule(m_device.GetDevice(), *triangle_vertex, nullptr);
-  vkDestroyShaderModule(m_device.GetDevice(), *triangle_fragment, nullptr);
+  vkCmdEndRendering(cmd);
 }
 
 void Renderer::InitTexturedMeshPipeline() {
@@ -465,9 +367,9 @@ void Renderer::InitTexturedMeshPipeline() {
   builder.SetShaders(*vertex, *fragment);
   builder.SetInputTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
   builder.SetPolygonMode(VK_POLYGON_MODE_FILL);
-  builder.SetCullMode(VK_CULL_MODE_FRONT_BIT, VK_FRONT_FACE_CLOCKWISE);
+  builder.SetCullMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
   builder.DisableMSAA();
-  builder.DisableBlending();
+  builder.EnableAlphaBlending();
   builder.EnableDepthTest();
 
   builder.SetColorAttachmentFormat(m_frames[0].render_target.format);
@@ -486,10 +388,10 @@ void Renderer::InitDefaultData() {
   ChunkMesh mesh = ChunkMesh::GenerateChunkMeshFromChunk(&m_chunk);
   m_device.WaitIdle();
   if (m_mesh.vertex.buffer && m_mesh.index.buffer) {
-    DestroyBuffer(m_allocator, std::move(m_mesh.vertex));
-    DestroyBuffer(m_allocator, std::move(m_mesh.index));
+    DestroyBuffer(*m_allocator, std::move(m_mesh.vertex));
+    DestroyBuffer(*m_allocator, std::move(m_mesh.index));
   }
-  m_mesh = UploadMesh(this, m_device.GetDevice(), m_allocator, mesh.indices, mesh.vertices);
+  m_mesh = UploadMesh(this, m_device.GetDevice(), *m_allocator, mesh.indices, mesh.vertices);
   std::cout << m_mesh.index.info.size / 4 << ',' << mesh.indices.size() << std::endl;
 }
 
@@ -516,23 +418,18 @@ void Renderer::ResizeSwapchain() {
   m_draw_extent = {width, height};
 
   for (auto &frame : m_frames) {
-    frame.render_target = AllocatedImage{m_device.GetDevice(), m_allocator, m_draw_extent,
+    frame.render_target = AllocatedImage{m_device.GetDevice(), *m_allocator, m_draw_extent,
                                          VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
                                              VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT};
 
-    frame.depth_buffer = AllocatedImage{m_device.GetDevice(), m_allocator, m_draw_extent,
+    frame.depth_buffer = AllocatedImage{m_device.GetDevice(), *m_allocator, m_draw_extent,
                                         VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_FORMAT_D32_SFLOAT};
   }
-  // UpdateDrawImageDescriptors();
 }
 
 RAIIDestructorForObjects::~RAIIDestructorForObjects() {
   if (allocator) {
     vmaDestroyAllocator(allocator);
-  }
-
-  if (surface) {
-    vkDestroySurfaceKHR(renderer->m_instance.GetInstance(), surface, nullptr);
   }
 }
 

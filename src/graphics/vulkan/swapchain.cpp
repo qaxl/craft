@@ -24,7 +24,10 @@ Swapchain::Swapchain(Device *device, VkSurfaceKHR surface, VkExtent2D extent)
   CreateSwapchain();
 }
 
-Swapchain::~Swapchain() { Cleanup(); }
+Swapchain::~Swapchain() {
+  Cleanup();
+  vkDestroySwapchainKHR(m_device->GetDevice(), m_swapchain, nullptr);
+}
 
 AcquiredImage Swapchain::AcquireNextImage(VkSemaphore wait_semaphore, uint64_t wait_time_ns) {
   VkResult res = vkAcquireNextImageKHR(m_device->GetDevice(), m_swapchain, wait_time_ns, wait_semaphore, nullptr,
@@ -45,10 +48,10 @@ AcquiredImage Swapchain::AcquireNextImage(VkSemaphore wait_semaphore, uint64_t w
 void Swapchain::Resize(uint32_t width, uint32_t height) {
   Cleanup();
   m_extent = {width, height};
-  CreateSwapchain();
+  CreateSwapchain(m_swapchain);
 }
 
-void Swapchain::CreateSwapchain() {
+void Swapchain::CreateSwapchain(VkSwapchainKHR swapchain) {
   VkSwapchainCreateInfoKHR create_info{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
   create_info.surface = m_surface;
 
@@ -63,7 +66,7 @@ void Swapchain::CreateSwapchain() {
   create_info.preTransform = m_transform;
   create_info.clipped = VK_TRUE;
   create_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-  create_info.oldSwapchain = m_swapchain;
+  create_info.oldSwapchain = swapchain;
 
   VK_CHECK(vkCreateSwapchainKHR(m_device->GetDevice(), &create_info, nullptr, &m_swapchain));
 
@@ -83,13 +86,15 @@ void Swapchain::CreateSwapchain() {
 
     VK_CHECK(vkCreateImageView(m_device->GetDevice(), &create_info, nullptr, &m_views[i]));
   }
+
+  if (swapchain) {
+    vkDestroySwapchainKHR(m_device->GetDevice(), swapchain, nullptr);
+  }
 }
 
 void Swapchain::Cleanup() {
   for (auto view : m_views) {
     vkDestroyImageView(m_device->GetDevice(), view, nullptr);
   }
-
-  vkDestroySwapchainKHR(m_device->GetDevice(), m_swapchain, nullptr);
 }
 } // namespace craft::vk

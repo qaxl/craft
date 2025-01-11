@@ -1,17 +1,18 @@
 #pragma once
 
-#include "device.hpp"
-#include "platform/window.hpp"
-
 #include <volk.h>
 
 #include <memory>
+
+#include "device.hpp"
+#include "platform/window.hpp"
+#include "swapchain.hpp"
 
 namespace craft::vk {
 class ImGui {
 public:
   ImGui() {}
-  ImGui(VkInstance instance, std::shared_ptr<Window> window, Device *device);
+  ImGui(std::shared_ptr<Window> window, Device *device, Swapchain *swapchain);
   ~ImGui();
 
   ImGui(const ImGui &) = delete;

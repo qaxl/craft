@@ -12,6 +12,11 @@ inline void GenerateChunk(bool generate_only_one_block, float max_generated_heig
   memset(out.blocks, 0, sizeof(out.blocks));
   if (generate_only_one_block) {
     out.blocks[0][0][0].block_type = BlockType::Dirt;
+    out.blocks[0][1][0].block_type = BlockType::Dirt;
+
+    out.blocks[0][0][2].block_type = BlockType::Dirt;
+    out.blocks[0][1][2].block_type = BlockType::Dirt;
+    out.blocks[1][0][2].block_type = BlockType::Dirt;
     return;
   }
 

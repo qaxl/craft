@@ -280,10 +280,12 @@ struct ImageTransitionBarrier {
   VkImageLayout old_layout;
   VkImageLayout new_layout;
   VkImage image;
+  uint32_t queue_indices[2] = {~0U, ~0U};
 
   ImageTransitionBarrier(VkPipelineStageFlags2 src_stage_mask, VkAccessFlags2 src_access_mask,
                          VkPipelineStageFlags2 dst_stage_mask, VkAccessFlags2 dst_access_mask, VkImageLayout old_layout,
-                         VkImageLayout new_layout, VkImage image)
+                         VkImageLayout new_layout, VkImage image, uint32_t src_queue_index = ~0U,
+                         uint32_t dst_queue_index = ~0U)
       : src_stage_mask{src_stage_mask}, src_access_mask{src_access_mask}, dst_stage_mask{dst_stage_mask},
         dst_access_mask{dst_access_mask}, old_layout{old_layout}, new_layout{new_layout}, image{image} {}
 };
@@ -299,6 +301,11 @@ static void TransitionImage(VkCommandBuffer cmd, const ImageTransitionBarrier &b
       .newLayout = barrier.new_layout,
       .image = barrier.image,
   };
+
+  if (barrier.queue_indices[0] != ~0U) {
+    image_barrier.srcQueueFamilyIndex = barrier.queue_indices[0];
+    image_barrier.dstQueueFamilyIndex = barrier.queue_indices[1];
+  }
 
   VkImageAspectFlags aspect_mask = (barrier.new_layout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL)
                                        ? VK_IMAGE_ASPECT_DEPTH_BIT
