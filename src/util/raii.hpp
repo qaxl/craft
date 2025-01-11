@@ -11,7 +11,11 @@ public:
   using DestroyFunction = void (*)(T);
 
   RAII(T &&resource, DestroyFunction f) : m_resource{std::move(resource)} {}
-  ~RAII() { m_f(m_resource); }
+  ~RAII() {
+    if (m_f) {
+      m_f(m_resource);
+    }
+  }
 
   RAII(const RAII &) = delete;
   RAII(RAII &&other) = delete;
@@ -23,6 +27,6 @@ public:
 
 private:
   T m_resource;
-  DestroyFunction m_f;
+  DestroyFunction m_f = nullptr;
 };
 } // namespace craft

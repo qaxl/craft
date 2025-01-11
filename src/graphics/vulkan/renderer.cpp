@@ -78,8 +78,8 @@ Renderer::Renderer(std::shared_ptr<Window> window, Camera const &camera, Chunk &
   };
   std::array<uint32_t, 6> indices = {0, 1, 3, 1, 2, 3};
 
-  m_crosshair_texture = std::make_shared<Texture>(*m_allocator, m_device, this, "textures/crosshair.png");
   m_crosshair_mesh = UploadMesh(this, m_device.GetDevice(), *m_allocator, indices, vertices);
+  m_crosshair_texture = std::make_shared<Texture>(*m_allocator, m_device, this, "textures/crosshair.png");
 
   m_texture = std::make_shared<Texture>(*m_allocator, m_device, this, "textures/spritesheet_blocks.png");
   m_imgui = ImGui{m_window, &m_device, &m_swapchain};
@@ -416,6 +416,19 @@ void Renderer::ResizeSwapchain() {
   m_swapchain.Resize(width, height);
 
   m_draw_extent = {width, height};
+
+  // FIXME: temporary
+  std::array<Vtx, 4> vertices = {
+      Vtx{.pos = {m_draw_extent.width / 2 - 15, m_draw_extent.height / 2 - 15, 1}, .uv = {0, 0}},
+      Vtx{.pos = {m_draw_extent.width / 2 - 15, m_draw_extent.height / 2 + 15, 1}, .uv = {0, 16.0f / 512.0f}},
+      Vtx{.pos = {m_draw_extent.width / 2 + 15, m_draw_extent.height / 2 + 15, 1},
+          .uv = {16.0f / 512.0f, 16.0f / 512.0f}},
+      Vtx{.pos = {m_draw_extent.width / 2 + 15, m_draw_extent.height / 2 - 15, 1}, .uv = {16.0f / 512.0f, 0}},
+  };
+  std::array<uint32_t, 6> indices = {0, 1, 3, 1, 2, 3};
+
+  m_crosshair_mesh = UploadMesh(this, m_device.GetDevice(), *m_allocator, indices, vertices);
+  // END OF FIXME
 
   for (auto &frame : m_frames) {
     frame.render_target = AllocatedImage{m_device.GetDevice(), *m_allocator, m_draw_extent,

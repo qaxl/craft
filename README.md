@@ -11,10 +11,10 @@ Custom Voxel Engine in C++ with Vulkan
 
 | Feature                                               | Implemented? |
 | ----------------------------------------------------- | ------------ |
-| Implement Vulkan abstractions for most things         | YES          |
-| Implement voxel generation and meshing                | MOSTLY DONE  |
-| Implement world editing (building and breaking)       | NO           |
-| Play as rectangles that shoot each other              | NO           |
+| Implement Vulkan abstractions for most things         | DONE         |
+| Implement voxel generation and meshing                | DONE         |
+| Implement world editing (building and breaking)       | UNDERWAY     |
+| Play as blocks     that shoot each other              | NO           |
 
 More features will come, as they will be implemented. I'll try my best listing them all here.
 

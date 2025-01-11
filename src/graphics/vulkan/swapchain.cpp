@@ -2,9 +2,6 @@
 
 #include <volk.h>
 
-#include <iostream>
-#include <utility>
-
 #include "util/error.hpp"
 #include "utils.hpp"
 #include "vulkan/vulkan_core.h"

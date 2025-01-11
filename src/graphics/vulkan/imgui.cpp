@@ -1,5 +1,4 @@
 #include "imgui.hpp"
-#include "renderer.hpp"
 #include "utils.hpp"
 
 #include <imgui.h>
@@ -23,7 +22,7 @@ ImGui::ImGui(std::shared_ptr<Window> window, Device *device, Swapchain *swapchai
 
   ::ImGui::CreateContext();
   ::ImGuiIO &io = ::ImGui::GetIO();
-  ::ImGui::StyleColorsClassic();
+  ::ImGui::StyleColorsLight();
 
   ImGui_ImplSDL3_InitForVulkan(window->GetHandle());
 

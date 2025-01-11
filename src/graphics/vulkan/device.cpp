@@ -10,8 +10,6 @@
 #include "utils.hpp"
 #include "vulkan/vulkan_core.h"
 
-#include <iostream>
-
 namespace craft::vk {
 Device::Device(VkInstance instance, std::initializer_list<DeviceExtension> extensions, const DeviceFeatures *features)
     : m_instance{instance} {
@@ -50,8 +48,6 @@ void Device::SelectPhysicalDevice(std::initializer_list<DeviceExtension> extensi
         VkPhysicalDeviceVulkan12Features feats2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, &feats3};
         VkPhysicalDeviceFeatures2 feats{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &feats2};
         vkGetPhysicalDeviceFeatures2(device, &feats);
-
-        std::cout << "Push Constants Size: " << props.limits.maxPushConstantsSize << std::endl;
 
         for (size_t offset = offsetof(VkPhysicalDeviceFeatures, robustBufferAccess);
              offset < sizeof(VkPhysicalDeviceFeatures) / sizeof(VkBool32); ++offset) {
@@ -149,10 +145,6 @@ void Device::SelectPhysicalDevice(std::initializer_list<DeviceExtension> extensi
         "program "
         "cannot continue, since Vulkan-capable device is a hard requirement for this program to run.");
   } else {
-
-    std::cout << m_devices.size() << ',' << m_devices.empty() << ',' << &m_devices[0] << ',' << m_devices[0].name
-              << std::endl;
-
     if (auto it = std::find_if(m_devices.begin(), m_devices.end(),
                                [](const SuitableDevice &device) { return device.discrete; });
         it != m_devices.end()) {
@@ -258,22 +250,16 @@ VkPresentModeKHR Device::GetOptimalPresentMode(VkSurfaceKHR surface, bool vsync)
 }
 
 VkSurfaceFormatKHR Device::GetOptimalSurfaceFormat(VkSurfaceKHR surface) const {
-  std::cout << 'f' << std::endl;
   auto surface_formats =
       GetProperties<VkSurfaceFormatKHR>(vkGetPhysicalDeviceSurfaceFormatsKHR, m_physical_device, surface);
-  std::cout << 'u' << std::endl;
 
   for (auto format : surface_formats) {
     if ((/* format.format == VK_FORMAT_B8G8R8A8_UNORM ||*/ format.format == VK_FORMAT_B8G8R8A8_SRGB) &&
         format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
-      std::cout << "Format: " << format.format << std::endl;
       return format;
     }
   }
 
-  std::cout << "ck you" << std::endl;
-  std::cout << "Format: " << surface_formats[0].format << ", color space: " << surface_formats[0].colorSpace
-            << std::endl;
   return surface_formats[0];
 }
 } // namespace craft::vk

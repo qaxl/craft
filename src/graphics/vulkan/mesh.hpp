@@ -7,7 +7,6 @@
 #include <span>
 
 #include "buffer.hpp"
-#include "math/vec.hpp"
 #include "world/chunk.hpp"
 
 namespace craft::vk {

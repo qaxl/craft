@@ -12,6 +12,7 @@
 #include "graphics/widgets/util_widget.hpp"
 #include "graphics/widgets/widget.hpp"
 #include "util/error.hpp"
+#include "world/chunk.hpp"
 #include "world/generator.hpp"
 
 namespace craft {
@@ -125,6 +126,10 @@ bool App::Run() {
       }
       if (m_window->IsKeyPressed(KeyboardKey::KP_1)) {
         m_camera.IncreaseMovementSpeedBy(-1.0f);
+      }
+
+      if (m_window->IsButtonPressed(1)) {
+        // TODO: implement raycast algorithm to break blocks
       }
 
       auto [x, y] = m_window->GetRelativeMouseMotion();

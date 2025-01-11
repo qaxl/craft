@@ -13,9 +13,8 @@
 
 namespace craft {
 Window::Window(int width, int height, const char *title) {
-  m_window = SDL_CreateWindow(title, width, height,
-                              SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_MOUSE_GRABBED |
-                                  SDL_WINDOW_MOUSE_RELATIVE_MODE);
+  m_window =
+      SDL_CreateWindow(title, width, height, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_MOUSE_RELATIVE_MODE);
   if (!m_window) {
     RuntimeError::Throw("Couldn't create a SDL window. Is there a display (server) available?", EF_AppendSDLErrors);
   }
@@ -69,6 +68,13 @@ void Window::PollEvents() {
 
       case SDL_EVENT_MOUSE_WHEEL:
         m_mouse_scroll += event.wheel.y;
+        break;
+
+      case SDL_EVENT_MOUSE_BUTTON_DOWN:
+        m_mouse_down.set(event.button.button);
+        break;
+      case SDL_EVENT_MOUSE_BUTTON_UP:
+        m_mouse_down.reset(event.button.button);
         break;
       }
 

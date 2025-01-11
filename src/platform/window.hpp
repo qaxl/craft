@@ -188,6 +188,7 @@ public:
   }
 
   bool IsKeyPressed(KeyboardKey key) { return m_key_down.test(static_cast<size_t>(key)); }
+  bool IsButtonPressed(uint8_t button) { return m_mouse_down.test(button); }
   std::pair<float, float> GetRelativeMouseMotion() { return m_relative_motion; }
   float GetMouseScroll() { return m_mouse_scroll; }
 
@@ -200,6 +201,7 @@ private:
   bool m_window_is_open = true;
 
   std::bitset<SDL_SCANCODE_COUNT> m_key_down;
+  std::bitset<64> m_mouse_down;
   std::pair<float, float> m_relative_motion = std::make_pair(0.0f, 0.0f);
   float m_mouse_scroll = 0.0f;
   // std::vector<bool> m_key_down2;

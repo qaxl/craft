@@ -1,6 +1,6 @@
 #include "mesh.hpp"
 
-#include "platform/window.hpp"
+#include "math/vec.hpp"
 #include "renderer.hpp"
 #include "world/chunk.hpp"
 
@@ -127,6 +127,8 @@ static bool ShouldRender(Chunk *chunk, MeshFace face, int z, int x, int y) {
   case MeshFace::Bottom:
     return y - 1 < 0 || chunk->blocks[z][x][y - 1].block_type == BlockType::Air;
   }
+
+  return true;
 }
 
 ChunkMesh ChunkMesh::GenerateChunkMeshFromChunk(Chunk *chunk) {

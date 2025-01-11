@@ -4,7 +4,7 @@
 
 #include <FastNoiseLite/FastNoiseLite.h>
 
-#include <iostream>
+#include <cstring>
 
 namespace craft {
 inline void GenerateChunk(bool generate_only_one_block, float max_generated_height, FastNoiseLite &noise, Chunk &out,
