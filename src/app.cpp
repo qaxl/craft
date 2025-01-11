@@ -1,6 +1,10 @@
 #include "app.hpp"
 
+#define GLM_ENABLE_EXPERIMENTAL
+
 #include <SDL3/SDL.h>
+#include <glm/ext/matrix_clip_space.hpp>
+#include <glm/gtx/string_cast.hpp>
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_vulkan.h>
 #include <volk.h>
@@ -57,6 +61,79 @@ App::App() {
   m_widget_manager->AddWidget(std::make_unique<RenderTimingsWidget>(&time_taken_to_render));
   m_widget_manager->AddWidget(std::make_unique<TerrainWidget>(m_regenerate, m_noise, m_regenerate_with_one_block,
                                                               m_scale_factor, m_max_height));
+}
+
+static glm::vec3 cast_a_ray(Window *window, Camera *camera) {
+  auto [width, height] = window->GetSize();
+
+  // Normalize mouse coordinates to NDC (-1 to 1 range)
+  float x = (2.0f * static_cast<float>(width) / 2.0f) / static_cast<float>(width) - 1.0f;
+  float y = 1.0f - (2.0f * static_cast<float>(height) / 2.0f) / static_cast<float>(height);
+
+  // Unproject the screen-space point to world space
+  glm::mat4 proj_view =
+      glm::infinitePerspectiveRH_ZO(camera->GetFov(), static_cast<float>(width) / static_cast<float>(height), 0.1f) *
+      camera->ViewMatrix();
+  glm::mat4 inv = glm::inverse(proj_view);
+
+  if (glm::determinant(proj_view) == 0.0f) {
+    std::cerr << "Warning: Projection * View matrix is singular!" << std::endl;
+    return glm::vec3(0.0f);
+  }
+
+  glm::vec4 nearPoint = glm::vec4(x, y, -1.0f, 1.0f); // Near plane is at z = -1
+
+  // Transform the near point to world space
+  glm::vec4 nearWorld = inv * nearPoint;
+  if (nearWorld.w == 0.0f) {
+    std::cerr << "Warning: Near point has zero w component!" << std::endl;
+    return glm::vec3(0.0f);
+  }
+  nearWorld /= nearWorld.w; // Homogenize the point
+
+  // The far point concept is removed for infinite perspective, so we just get the direction
+  glm::vec3 rayDir = glm::normalize(glm::vec3(nearWorld)); // Use the direction directly
+
+  return rayDir;
+}
+
+bool intersect_ray_aabb(const glm::vec3 &rayOrigin, const glm::vec3 &rayDir, const glm::vec3 &aabbMin,
+                        const glm::vec3 &aabbMax, float tMin, float tMax) {
+  float t1, t2;
+
+  // Initialize tMin and tMax to -infinity and +infinity
+  tMin = -std::numeric_limits<float>::infinity();
+  tMax = std::numeric_limits<float>::infinity();
+
+  // Check for intersection with each axis (X, Y, Z)
+  for (int i = 0; i < 3; i++) {
+    // Calculate the entry and exit times for the ray on this axis
+    if (rayDir[i] != 0.0f) {
+      t1 = (aabbMin[i] - rayOrigin[i]) / rayDir[i];
+      t2 = (aabbMax[i] - rayOrigin[i]) / rayDir[i];
+
+      // Ensure t1 is the smaller value and t2 is the larger value
+      if (t1 > t2)
+        std::swap(t1, t2);
+
+      // Update the overall tMin and tMax values for this axis
+      tMin = std::max(tMin, t1);
+      tMax = std::min(tMax, t2);
+
+      // If tMax is less than tMin, no intersection (the ray misses the box)
+      if (tMax < tMin) {
+        return false;
+      }
+    } else {
+      // If rayDir[i] == 0, we check if the ray is outside the box along this axis
+      if (rayOrigin[i] < aabbMin[i] || rayOrigin[i] > aabbMax[i]) {
+        return false;
+      }
+    }
+  }
+
+  // The ray intersects the AABB if tMin is less than or equal to tMax
+  return tMax >= tMin;
 }
 
 bool App::Run() {
@@ -130,6 +207,30 @@ bool App::Run() {
 
       if (m_window->IsButtonPressed(1)) {
         // TODO: implement raycast algorithm to break blocks
+        auto v = cast_a_ray(m_window.get(), &m_camera);
+        std::cout << "Ray Direction: (" << v.x << ", " << v.y << ", " << v.z << ")\n";
+
+        // FIXME: this is extremely slow
+        for (int z = 0; z < kMaxChunkDepth; ++z) {
+          for (int x = 0; x < kMaxChunkWidth; ++x) {
+            for (int y = 0; y < kMaxChunkHeight; ++y) {
+              if (m_chunk->blocks[z][x][y].block_type == BlockType::Air) {
+                continue;
+              }
+
+              glm::vec3 block_position = glm::vec3(-x, -y, -z);
+              glm::vec3 block_size = glm::vec3(1.0f);
+
+              if (intersect_ray_aabb(m_camera.GetPosition(), v, block_position, block_position + block_size, 0.0f,
+                                     0.0f)) {
+                std::cout << "Deleting a block at (" << x << ", " << y << ", " << z << ")\n";
+                m_chunk->blocks[z][x][y].block_type = BlockType::Lava;
+                m_renderer->InitDefaultData();
+                break;
+              }
+            }
+          }
+        }
       }
 
       auto [x, y] = m_window->GetRelativeMouseMotion();

@@ -139,6 +139,7 @@ ChunkMesh ChunkMesh::GenerateChunkMeshFromChunk(Chunk *chunk) {
   static constexpr Rect GRASS_TEXTURE = {64.0f / 512.0f, 32.0f / 512.0f, 32.0f / 512.0f, 32.0f / 512.0f};
   static constexpr Rect DIRT_TEXTURE = {0.0f / 512.0f, 32.0f / 512.0f, 32.0f / 512.0f, 32.0f / 512.0f};
   static constexpr Rect DIRT_WITH_GRASS = {32.0f / 512.0f, 32.0f / 512.0f, 32.0f / 512.0f, 32.0f / 512.0f};
+  static constexpr Rect LAVA_TEXTURE = {64.0f / 512.0f, 0.0f / 512.0f, 32.0f / 512.0f, 32.0f / 512.0f};
 
   for (int z = 0; z < kMaxChunkDepth; ++z) {
     for (int x = 0; x < kMaxChunkWidth; ++x) {
@@ -151,13 +152,13 @@ ChunkMesh ChunkMesh::GenerateChunkMeshFromChunk(Chunk *chunk) {
         glm::vec3 block_size(1, 1, 1);
 
         BlockType current_type = block.block_type;
-        if (current_type == BlockType::Dirt) {
-          for (int face = 0; face < 6; face++) {
-            MeshFace current_face = static_cast<MeshFace>(face);
-            if (!ShouldRender(chunk, current_face, z, x, y))
-              continue;
+        for (int face = 0; face < 6; face++) {
+          MeshFace current_face = static_cast<MeshFace>(face);
+          if (!ShouldRender(chunk, current_face, z, x, y))
+            continue;
 
-            Rect tex_coords;
+          Rect tex_coords;
+          if (current_type == BlockType::Dirt) {
             if (current_face == MeshFace::Top) {
               tex_coords = GRASS_TEXTURE;
             } else if (current_face == MeshFace::Bottom) {
@@ -165,9 +166,11 @@ ChunkMesh ChunkMesh::GenerateChunkMeshFromChunk(Chunk *chunk) {
             } else {
               tex_coords = DIRT_WITH_GRASS;
             }
-
-            AddFace(current_face, block_pos, tex_coords, mesh.vertices, mesh.indices);
+          } else {
+            tex_coords = LAVA_TEXTURE;
           }
+
+          AddFace(current_face, block_pos, tex_coords, mesh.vertices, mesh.indices);
         }
       }
     }
