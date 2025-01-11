@@ -14,6 +14,7 @@
 #include "graphics/camera.hpp"
 #include "image.hpp"
 #include "imgui.hpp"
+#include "instance.hpp"
 #include "math/vec.hpp"
 #include "mesh.hpp"
 #include "platform/window.hpp"
@@ -22,34 +23,13 @@
 namespace craft::vk {
 class Texture;
 
-struct Instance {
-  VkInstance instance{};
-  VkSurfaceKHR surface{};
+struct RAIIDestructorForObjects {
+  Renderer *renderer = nullptr;
 
-  ~Instance() {
-    if (surface)
-      vkDestroySurfaceKHR(instance, surface, nullptr);
+  VmaAllocator allocator = nullptr;
+  VkSurfaceKHR surface = nullptr;
 
-    if (instance)
-      vkDestroyInstance(instance, nullptr);
-  }
-};
-
-struct Allocator {
-  VmaAllocator allocator{};
-
-  ~Allocator() {
-    if (allocator) {
-      vmaDestroyAllocator(allocator);
-    }
-  }
-};
-
-struct InstanceExtension {
-  // the extension name to enable
-  const char *name;
-  // whether an extension must be loaded, or only loaded if existing
-  bool required = true;
+  ~RAIIDestructorForObjects();
 };
 
 struct FrameData {
@@ -103,9 +83,6 @@ public:
   // TODO: configurable?
   FrameData &GetCurrentFrame() { return m_frames[m_frame_number++ % kMaxFramesInFlight]; }
 
-  // ComputeEffect &GetCurrentEffect() { return m_bg_effects[m_current_bg_effect]; }
-  // void SetCurrentEffect(int index) { m_current_bg_effect = index % m_bg_effects.size(); }
-
   void Draw();
   void SubmitNow(std::function<void(VkCommandBuffer)> f);
 
@@ -136,17 +113,17 @@ private:
   Camera const &m_camera;
   Chunk &m_chunk;
 
-  Instance m_instance_raii;
-  VkInstance m_instance;
-  VkDebugUtilsMessengerEXT m_messenger;
+  Instance m_instance;
 
   Device m_device;
+  VkSurfaceKHR m_surface;
+  VkExtent2D m_draw_extent;
+
   Swapchain m_swapchain;
 
   VmaAllocator m_allocator;
-  Allocator m_allocator_raii;
+  RAIIDestructorForObjects m_destructor;
 
-  VkSurfaceKHR m_surface;
   std::shared_ptr<Texture> m_texture;
   std::shared_ptr<Texture> m_crosshair_texture;
 
@@ -154,7 +131,6 @@ private:
   std::array<FrameData, kMaxFramesInFlight> m_frames;
 
   // AllocatedImage m_draw_image;
-  VkExtent2D m_draw_extent;
 
   DescriptorAllocator m_descriptor_allocator;
 
@@ -188,5 +164,7 @@ private:
 
   ImmediateSubmit m_imm;
   DescriptorAllocator m_dallocator;
+
+  friend struct RAIIDestructorForObjects;
 };
 } // namespace craft::vk

@@ -16,7 +16,7 @@ struct DeviceExtension {
 };
 
 struct DeviceFeatures {
-  VkPhysicalDeviceFeatures2 base_features{};
+  VkPhysicalDeviceFeatures base_features{};
   VkPhysicalDeviceVulkan12Features vk_1_2_features{};
   VkPhysicalDeviceVulkan13Features vk_1_3_features{};
 };
@@ -48,36 +48,15 @@ struct SuitableDevice {
 
 class Device {
 public:
-  Device() {}
-
   Device(VkInstance instance, std::initializer_list<DeviceExtension> extensions,
          const DeviceFeatures *features = nullptr);
   ~Device();
 
   Device(const Device &) = delete;
-  Device(Device &&other) { *this = std::move(other); }
+  Device(Device &&other) = delete;
 
   Device &operator=(const Device &) = delete;
-  Device &operator=(Device &&other) {
-    this->m_instance = other.m_instance;
-    this->m_device = other.m_device;
-    this->m_physical_device = other.m_physical_device;
-    this->m_graphics = other.m_graphics;
-    this->m_transfer = other.m_transfer;
-    this->m_compute = other.m_compute;
-    this->m_current_device = other.m_current_device;
-    this->m_devices = std::move(other.m_devices);
-
-    other.m_instance = nullptr;
-    other.m_device = nullptr;
-    other.m_physical_device = nullptr;
-    other.m_graphics = nullptr;
-    other.m_transfer = nullptr;
-    other.m_compute = nullptr;
-    other.m_current_device = nullptr;
-
-    return *this;
-  }
+  Device &operator=(Device &&other) = delete;
 
   FORCE_INLINE VkInstance GetInstance() { return m_instance; }
   FORCE_INLINE VkDevice GetDevice() { return m_device; }

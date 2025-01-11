@@ -15,7 +15,10 @@ public:
   ~TextureMap();
 
   TextureMapPixelData GetPixelData() { return m_pixel_data; }
-  void ReleasePixelData() { free(m_pixel_data.pixel_data); }
+  void ReleasePixelData() {
+    free(m_pixel_data.pixel_data);
+    m_pixel_data.pixel_data = nullptr;
+  }
 
 private:
   TextureMapPixelData m_pixel_data;

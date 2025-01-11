@@ -23,6 +23,7 @@ ImGui::ImGui(VkInstance instance, std::shared_ptr<Window> window, Device *device
 
   ::ImGui::CreateContext();
   ::ImGuiIO &io = ::ImGui::GetIO();
+  ::ImGui::StyleColorsClassic();
 
   ImGui_ImplSDL3_InitForVulkan(window->GetHandle());
 

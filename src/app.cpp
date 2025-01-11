@@ -1,22 +1,12 @@
 #include "app.hpp"
 
-#include <iostream>
-
 #include <SDL3/SDL.h>
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_vulkan.h>
-#include <steam/isteamapps.h>
-#include <steam/isteamfriends.h>
-#include <steam/isteammatchmaking.h>
-#include <steam/isteamnetworkingsockets.h>
-#include <steam/isteamnetworkingutils.h>
-#include <steam/steam_api.h>
-#include <steam/steam_api_common.h>
 #include <volk.h>
 
 #include "graphics/camera.hpp"
 #include "graphics/vulkan/renderer.hpp"
-#include "graphics/widgets/background_settings_widget.hpp"
 #include "graphics/widgets/render_time_widget.hpp"
 #include "graphics/widgets/terrain_widget.hpp"
 #include "graphics/widgets/util_widget.hpp"
@@ -28,27 +18,6 @@ namespace craft {
 App::~App() {
   SDL_Quit();
   // SteamAPI_Shutdown();
-}
-
-// Callback Registration
-class SteamCallbackHandler {
-public:
-  // Constructor to hook the callback
-  SteamCallbackHandler() : m_SteamJoinGameCallback(this, &SteamCallbackHandler::OnJoinGame) {}
-
-private:
-  STEAM_CALLBACK(SteamCallbackHandler, OnJoinGame, GameRichPresenceJoinRequested_t);
-  CCallback<SteamCallbackHandler, GameRichPresenceJoinRequested_t> m_SteamJoinGameCallback;
-};
-
-void SteamCallbackHandler::OnJoinGame(GameRichPresenceJoinRequested_t *pCallback) {
-  // pCallback->m_rgchConnect contains the connection string
-  std::cout << "Join request received from: " << pCallback->m_rgchConnect << std::endl;
-
-  // Process the join request, e.g., connect to the game session
-  std::string connectionString = pCallback->m_rgchConnect;
-  // Call your game's logic to handle joining, like:
-  // ConnectToGame(connectionString);
 }
 
 App::App() {
@@ -87,42 +56,6 @@ App::App() {
   m_widget_manager->AddWidget(std::make_unique<RenderTimingsWidget>(&time_taken_to_render));
   m_widget_manager->AddWidget(std::make_unique<TerrainWidget>(m_regenerate, m_noise, m_regenerate_with_one_block,
                                                               m_scale_factor, m_max_height));
-  // m_widget_manager->AddWidget(std::make_unique<BackgroundSettingsWidget>(m_renderer));
-
-  // std::cout << "Hi, " << SteamFriends()->GetPersonaName() << "!" << std::endl;
-
-  // char server_or_client;
-  // std::cin >> server_or_client;
-
-  // SteamNetworkingUtils()->InitRelayNetworkAccess();
-  // SteamNetworkingSockets()->InitAuthentication();
-  // SteamFriends()->SetRichPresence("status", "Deliberating the existence...");
-  // // SteamFriends()->SetRichPresence("steam_player_group", "fadaba");
-  // // SteamFriends()->SetRichPresence("steam_player_group_size", "4");
-  // SteamFriends()->SetRichPresence("connect", "4");
-
-  // if (server_or_client == 's') {
-  //   HSteamListenSocket socket = SteamNetworkingSockets()->CreateListenSocketP2P(0, 0, nullptr);
-  //   if (socket == k_HSteamListenSocket_Invalid) {
-  //     RuntimeError::Throw("Couldn't host a P2P server.");
-  //   }
-
-  //   ISteamNetworkingMessage *pIncomingMsg = nullptr;
-  //   while (socket != k_HSteamListenSocket_Invalid) {
-  //     int numMsgs = SteamNetworkingSockets()->ReceiveMessagesOnConnection(socket, &pIncomingMsg, 1);
-
-  //     if (numMsgs < 1)
-  //       continue;
-
-  //     std::cout << "Received message on socket: " << pIncomingMsg->GetData() << std::endl;
-  //     pIncomingMsg->Release();
-
-  //     SteamNetworkingSockets()->SendMessageToConnection(pIncomingMsg->GetConnection(), "WE GOT IT!", 11,
-  //                                                       k_nSteamNetworkingSend_Reliable, nullptr);
-  //   }
-  // } else {
-  //   // SteamNetworkingSockets()->ConnectP2P()
-  // }
 }
 
 bool App::Run() {
@@ -131,8 +64,6 @@ bool App::Run() {
   uint64_t stop = SDL_GetTicksNS();
 
   bool camera_enabled = true;
-
-  SteamCallbackHandler handler;
 
   while (m_window->IsOpen()) {
     if (RuntimeError::HasAnError()) {
@@ -207,8 +138,6 @@ bool App::Run() {
       m_renderer->InitDefaultData();
       m_regenerate = false;
     }
-
-    // SteamAPI_RunCallbacks();
   }
 
   return true;

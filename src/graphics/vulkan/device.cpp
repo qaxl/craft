@@ -53,9 +53,10 @@ void Device::SelectPhysicalDevice(std::initializer_list<DeviceExtension> extensi
 
         std::cout << "Push Constants Size: " << props.limits.maxPushConstantsSize << std::endl;
 
-        for (size_t offset = 0; offset < sizeof(VkPhysicalDeviceFeatures) / sizeof(VkBool32); ++offset) {
+        for (size_t offset = offsetof(VkPhysicalDeviceFeatures, robustBufferAccess);
+             offset < sizeof(VkPhysicalDeviceFeatures) / sizeof(VkBool32); ++offset) {
           VkBool32 supported = reinterpret_cast<const VkBool32 *>(&feats.features)[offset];
-          VkBool32 requested = reinterpret_cast<const VkBool32 *>(&features->base_features.features)[offset];
+          VkBool32 requested = reinterpret_cast<const VkBool32 *>(&features->base_features)[offset];
 
           if (!supported && requested) {
             return;
@@ -170,9 +171,10 @@ void Device::CreateDevice(SuitableDevice *device) {
   create_info.enabledExtensionCount = device->extensions.size();
   create_info.ppEnabledExtensionNames = device->extensions.data();
 
-  create_info.pNext = &device->features.base_features;
-  device->features.base_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-  device->features.base_features.pNext = &device->features.vk_1_2_features;
+  VkPhysicalDeviceFeatures2 features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &device->features.vk_1_2_features};
+  memcpy(&features.features, &device->features.base_features, sizeof(VkPhysicalDeviceFeatures));
+
+  create_info.pNext = &features;
   device->features.vk_1_2_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
   device->features.vk_1_2_features.pNext = &device->features.vk_1_3_features;
   device->features.vk_1_3_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
@@ -256,15 +258,22 @@ VkPresentModeKHR Device::GetOptimalPresentMode(VkSurfaceKHR surface, bool vsync)
 }
 
 VkSurfaceFormatKHR Device::GetOptimalSurfaceFormat(VkSurfaceKHR surface) const {
+  std::cout << 'f' << std::endl;
   auto surface_formats =
       GetProperties<VkSurfaceFormatKHR>(vkGetPhysicalDeviceSurfaceFormatsKHR, m_physical_device, surface);
+  std::cout << 'u' << std::endl;
 
   for (auto format : surface_formats) {
-    if ((format.format == VK_FORMAT_B8G8R8A8_UNORM || format.format == VK_FORMAT_B8G8R8A8_SRGB) &&
-        format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+    if ((/* format.format == VK_FORMAT_B8G8R8A8_UNORM ||*/ format.format == VK_FORMAT_B8G8R8A8_SRGB) &&
+        format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+      std::cout << "Format: " << format.format << std::endl;
       return format;
+    }
   }
 
+  std::cout << "ck you" << std::endl;
+  std::cout << "Format: " << surface_formats[0].format << ", color space: " << surface_formats[0].colorSpace
+            << std::endl;
   return surface_formats[0];
 }
 } // namespace craft::vk

@@ -5,6 +5,7 @@ add_executable(craft
   graphics/vulkan/device.cpp
   graphics/vulkan/mesh.cpp
   graphics/vulkan/imgui.cpp
+  graphics/vulkan/instance.cpp
   graphics/vulkan/renderer.cpp
   graphics/vulkan/swapchain.cpp
   graphics/vulkan/texture.cpp

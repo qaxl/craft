@@ -23,7 +23,6 @@ inline void GenerateChunk(bool generate_only_one_block, float max_generated_heig
       height *= max_generated_height;
 
       uint32_t y = (2 + static_cast<uint32_t>(height)) % kMaxChunkHeight;
-      std::cout << y << std::endl;
       // out.blocks[y][x][z].block_type = BlockType::Dirt;
       for (uint32_t yy = y; yy > 0; --yy) {
         out.blocks[z][x][yy].block_type = BlockType::Dirt;

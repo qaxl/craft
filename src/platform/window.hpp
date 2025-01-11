@@ -174,6 +174,11 @@ public:
     return std::make_pair(width, height);
   }
 
+  VkExtent2D GetExtent() const {
+    auto [width, height] = GetSize();
+    return VkExtent2D{width, height};
+  }
+
   VkSurfaceKHR CreateSurface(VkInstance instance) {
     VkSurfaceKHR surface;
     if (!SDL_Vulkan_CreateSurface(m_window, instance, nullptr, &surface)) {

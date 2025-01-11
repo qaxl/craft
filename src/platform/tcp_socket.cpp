@@ -29,8 +29,8 @@ bool TcpSocket::Connect(const char *ip, int port) {
 
   addrinfo hints{
       .ai_family = AF_INET,
-      .ai_protocol = IPPROTO_TCP,
       .ai_socktype = SOCK_STREAM,
+      .ai_protocol = IPPROTO_TCP,
   };
 
   addrinfo *results;

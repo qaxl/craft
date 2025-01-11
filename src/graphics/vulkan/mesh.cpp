@@ -65,36 +65,36 @@ static void AddQuad(const glm::vec3 top_left, const glm::vec3 right, const glm::
   vertices.push_back(Vtx{.pos = top_left + right + bottom, .uv = uv_coords[3]});
 
   indices.push_back(start_index + 0);
-  indices.push_back(start_index + 2);
-  indices.push_back(start_index + 1);
   indices.push_back(start_index + 1);
   indices.push_back(start_index + 2);
+  indices.push_back(start_index + 1);
   indices.push_back(start_index + 3);
+  indices.push_back(start_index + 2);
 }
 
 static void AddFace(MeshFace face, glm::vec3 pos, glm::vec3 size, glm::vec4 uv, std::vector<Vtx> &vertices,
                     std::vector<uint32_t> &indices) {
   switch (face) {
   case MeshFace::Front:
-    AddQuad(pos + glm::vec3(0, size.y, 0), glm::vec3(size.x, 0, 0), glm::vec3(0, -size.y, 0), uv, vertices, indices);
-    break;
-  case MeshFace::Back:
-    AddQuad(pos + glm::vec3(0, size.y, size.z), glm::vec3(size.x, 0, 0), glm::vec3(0, -size.y, 0), uv, vertices,
+    AddQuad(pos + glm::vec3(size.x, size.y, size.z), glm::vec3(-size.x, 0, 0), glm::vec3(0, -size.y, 0), uv, vertices,
             indices);
     break;
+  case MeshFace::Back:
+    AddQuad(pos + glm::vec3(0, size.y, 0), glm::vec3(size.x, 0, 0), glm::vec3(0, -size.y, 0), uv, vertices, indices);
+    break;
   case MeshFace::Left:
-    AddQuad(pos + glm::vec3(0, size.y, 0), glm::vec3(0, 0, size.z), glm::vec3(0, -size.y, 0), uv, vertices, indices);
+    AddQuad(pos + glm::vec3(0, size.y, size.z), glm::vec3(0, 0, -size.z), glm::vec3(0, -size.y, 0), uv, vertices,
+            indices);
     break;
   case MeshFace::Right:
     AddQuad(pos + glm::vec3(size.x, size.y, 0), glm::vec3(0, 0, size.z), glm::vec3(0, -size.y, 0), uv, vertices,
             indices);
     break;
   case MeshFace::Top:
-    AddQuad(pos + glm::vec3(0, 0, 0), glm::vec3(size.x, 0, 0), glm::vec3(0, 0, size.z), uv, vertices, indices);
+    AddQuad(pos + glm::vec3(0, size.y, 0), glm::vec3(size.x, 0, 0), glm::vec3(0, 0, size.z), uv, vertices, indices);
     break;
   case MeshFace::Bottom:
-    AddQuad(pos + glm::vec3(0, size.y, size.z), glm::vec3(size.x, 0, 0), glm::vec3(0, 0, -size.z), uv, vertices,
-            indices);
+    AddQuad(pos + glm::vec3(0, 0, size.z), glm::vec3(size.x, 0, 0), glm::vec3(0, 0, -size.z), uv, vertices, indices);
     break;
   }
 }

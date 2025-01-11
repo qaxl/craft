@@ -1,254 +1,51 @@
 #include "renderer.hpp"
 
-#include <algorithm>
 #include <array>
 #include <iostream>
-#include <set>
 #include <vector>
 
 #include <SDL3/SDL_vulkan.h>
+#include <glm/ext/matrix_clip_space.hpp>
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_vulkan.h>
 
 #include "descriptor.hpp"
 #include "device.hpp"
-#include "glm/ext/matrix_clip_space.hpp"
-#include "glm/ext/matrix_transform.hpp"
-#include "math/mat.hpp"
 #include "mesh.hpp"
 #include "pipeline.hpp"
 #include "swapchain.hpp"
 #include "texture.hpp"
 #include "util/error.hpp"
 #include "utils.hpp"
-#include "vulkan/vulkan_core.h"
 
 namespace craft::vk {
-static std::vector<const char *> CheckInstanceExtensions(std::initializer_list<InstanceExtension> exts_) {
-  auto available_exts = GetProperties<VkExtensionProperties>(vkEnumerateInstanceExtensionProperties, nullptr);
-
-  std::vector<InstanceExtension> exts = exts_;
-  uint32_t sdl_ext_count = 0;
-  const char *const *sdl_exts = SDL_Vulkan_GetInstanceExtensions(&sdl_ext_count);
-
-  for (uint32_t i = 0; i < sdl_ext_count; ++i) {
-    exts.emplace_back(InstanceExtension{sdl_exts[i], true});
-  }
-
-  std::set<std::string_view> required_exts;
-  for (const auto &ext : exts) {
-    if (ext.required) {
-      required_exts.insert(ext.name);
-    }
-  }
-
-  std::vector<const char *> enabled_exts;
-  enabled_exts.reserve(exts.size());
-
-  std::set<std::string_view> enabled_required_exts;
-  for (const auto &available_ext : available_exts) {
-    auto it = std::find_if(exts.begin(), exts.end(), [&](const InstanceExtension &ext) {
-      return strcmp(ext.name, available_ext.extensionName) == 0;
-    });
-    if (it != exts.end()) {
-      enabled_exts.push_back(it->name);
-      if (it->required) {
-        enabled_required_exts.insert(it->name);
-      }
-    }
-  }
-
-  // Ensure all required extensions are enabled
-  if (!std::includes(enabled_required_exts.begin(), enabled_required_exts.end(), required_exts.begin(),
-                     required_exts.end())) {
-    std::vector<std::string_view> missing_exts;
-    std::set_difference(required_exts.begin(), required_exts.end(), enabled_required_exts.begin(),
-                        enabled_required_exts.end(), std::back_inserter(missing_exts));
-
-    std::cout << "Vulkan Error: The following extensions weren't enabled: " << std::endl;
-    for (auto ext : missing_exts) {
-      std::cout << "- " << ext << std::endl;
-    }
-
-    RuntimeError::Throw("Not all required Vulkan extensions were enabled.");
-  }
-
-  return enabled_exts;
-}
-
-static std::vector<const char *> CheckInstanceLayers(std::initializer_list<const char *> layers) {
-  auto available_layers = GetProperties<VkLayerProperties>(vkEnumerateInstanceLayerProperties);
-
-  std::vector<const char *> enabled_layers;
-  enabled_layers.reserve(layers.size());
-
-  for (const auto &available_layer : available_layers) {
-    auto it = std::find_if(layers.begin(), layers.end(),
-                           [&](const char *name) { return strcmp(name, available_layer.layerName) == 0; });
-    if (it != layers.end()) {
-      enabled_layers.push_back(*it);
-    }
-  }
-
-  size_t count = 0;
-  for (auto enabled : enabled_layers) {
-    for (auto wanted : layers) {
-      if (strcmp(enabled, wanted) == 0) {
-        count++;
-      }
-    }
-  }
-
-  if (count != layers.size()) {
-    RuntimeError::Throw("Not all required Vulkan layers were enabled!");
-  }
-
-  return enabled_layers;
-}
-
-static VKAPI_CALL VkBool32 VkDebugMessageCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-                                                  VkDebugUtilsMessageTypeFlagsEXT messageTypes,
-                                                  const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData,
-                                                  void *pUserData) {
-  const char *severityStr = "";
-  switch (messageSeverity) {
-  case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT:
-    severityStr = "VERBOSE";
-    break;
-  case VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT:
-    severityStr = "INFO";
-    break;
-  case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT:
-    severityStr = "WARNING";
-    break;
-  case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:
-    severityStr = "ERROR";
-    break;
-
-  case VK_DEBUG_UTILS_MESSAGE_SEVERITY_FLAG_BITS_MAX_ENUM_EXT:
-    severityStr = "UNK";
-    break;
-  }
-
-  std::string typeStr = "";
-  if (messageTypes & VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT) {
-    if (!typeStr.empty())
-      typeStr += "|";
-    typeStr += "GENERAL";
-  }
-  if (messageTypes & VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT) {
-    if (!typeStr.empty())
-      typeStr += "|";
-    typeStr += "VALIDATION";
-  }
-  if (messageTypes & VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT) {
-    if (!typeStr.empty())
-      typeStr += "|";
-    typeStr += "PERFORMANCE";
-  }
-
-  std::cout << "[" << severityStr << "] [" << typeStr << "] " << pCallbackData->pMessage << std::endl;
-  return VK_FALSE;
-}
-
-static VkInstance CreateInstance(std::shared_ptr<Window> window, std::initializer_list<InstanceExtension> extensions,
-                                 std::initializer_list<const char *> layers, std::string_view app_name,
-                                 VkDebugUtilsMessengerEXT &messenger) {
-  auto exts = CheckInstanceExtensions(extensions);
-  auto layrs = CheckInstanceLayers(layers);
-
-  VkApplicationInfo app_info{VK_STRUCTURE_TYPE_APPLICATION_INFO};
-  app_info.applicationVersion = VK_MAKE_API_VERSION(0, 1, 0, 0);
-  app_info.pApplicationName = app_name.data();
-  app_info.pEngineName = "craft engine";
-  app_info.engineVersion = VK_MAKE_API_VERSION(0, 1, 0, 0);
-  // TODO: not to depend on the latest and the greatest, add support for older.
-  app_info.apiVersion = VK_API_VERSION_1_3;
-
-  VkInstanceCreateInfo create_info{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
-
-#ifndef NDEBUG
-  VkDebugUtilsMessengerCreateInfoEXT messenger_info{VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT};
-  messenger_info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT |
-                                   VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
-                                   VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT;
-  messenger_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
-                               VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT |
-                               VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT;
-  messenger_info.pfnUserCallback = VkDebugMessageCallback;
-
-  create_info.pNext = &messenger_info;
-#endif
-
-  create_info.pApplicationInfo = &app_info;
-  create_info.enabledExtensionCount = exts.size();
-  create_info.ppEnabledExtensionNames = exts.data();
-  create_info.enabledLayerCount = layrs.size();
-  create_info.ppEnabledLayerNames = layrs.data();
-
-  VkInstance instance;
-  VK_CHECK(vkCreateInstance(&create_info, nullptr, &instance));
-  volkLoadInstanceOnly(instance);
-
-#ifndef NDEBUG
-  VK_CHECK(vkCreateDebugUtilsMessengerEXT(instance, &messenger_info, nullptr, &messenger));
-#endif
-
-  return instance;
-}
+constexpr DeviceFeatures const kDeviceFeatures = DeviceFeatures{
+    .base_features = {.sampleRateShading = true, .samplerAnisotropy = true},
+    .vk_1_2_features = {.bufferDeviceAddress = true},
+    .vk_1_3_features =
+        {
+            .synchronization2 = true,
+            .dynamicRendering = true,
+        },
+};
 
 Renderer::Renderer(std::shared_ptr<Window> window, Camera const &camera, Chunk &chunk)
-    : m_window{window}, m_camera{camera}, m_chunk{chunk} {
-  std::vector<const char *> enabled_exts;
-
-  m_instance = CreateInstance(window,
-                              {
-#ifndef NDEBUG
-                                  {VK_EXT_DEBUG_UTILS_EXTENSION_NAME, false},
-#endif
-                                  {VK_EXT_ROBUSTNESS_2_EXTENSION_NAME, false}},
-                              {/* use vulkan configurator, thank you :) */}, "craft app", m_messenger);
-  // This is just to make sure that the VkInstance gets destroyed the last.
-  m_instance_raii.instance = m_instance;
-
-  DeviceFeatures features{};
-  features.vk_1_3_features.dynamicRendering = true;
-  features.vk_1_3_features.synchronization2 = true;
-  features.vk_1_2_features.bufferDeviceAddress = true;
-  // TODO: don't enforce
-  features.base_features.features.samplerAnisotropy = true;
-
-  m_device = Device{m_instance, {DeviceExtension{VK_KHR_SWAPCHAIN_EXTENSION_NAME}}, &features};
+    : m_window{window}, m_camera{camera}, m_chunk{chunk}, m_instance{},
+      m_device{m_instance.GetInstance(), {DeviceExtension{VK_KHR_SWAPCHAIN_EXTENSION_NAME}}, &kDeviceFeatures},
+      m_surface{m_window->CreateSurface(m_instance.GetInstance())}, m_draw_extent{m_window->GetExtent()},
+      m_swapchain{&m_device, m_surface, m_draw_extent} {
 
   VmaVulkanFunctions funcs{.vkGetInstanceProcAddr = vkGetInstanceProcAddr, .vkGetDeviceProcAddr = vkGetDeviceProcAddr};
 
   VmaAllocatorCreateInfo allocator_info{};
   allocator_info.physicalDevice = m_device.GetPhysicalDevice();
   allocator_info.device = m_device.GetDevice();
-  allocator_info.instance = m_instance;
+  allocator_info.instance = m_instance.GetInstance();
   allocator_info.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
   allocator_info.pVulkanFunctions = &funcs;
 
-  vmaCreateAllocator(&allocator_info, &m_allocator);
-  m_allocator_raii.allocator = m_allocator;
-
-  auto [width, height] = window->GetSize();
-  VkExtent2D extent{width, height};
-
-  m_surface = m_window->CreateSurface(m_instance);
-  m_draw_extent = {width, height};
-
-  VkSurfaceCapabilitiesKHR caps;
-  vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_device.GetPhysicalDevice(), m_surface, &caps);
-
-  m_swapchain = Swapchain{m_device.GetDevice(),
-                          m_surface,
-                          extent,
-                          caps.currentTransform,
-                          m_device.GetOptimalPresentMode(m_surface, false),
-                          m_device.GetOptimalSurfaceFormat(m_surface)};
-  m_instance_raii.surface = m_surface;
+  VK_CHECK(vmaCreateAllocator(&allocator_info, &m_allocator));
 
   for (auto &frame : m_frames) {
     frame.render_target = AllocatedImage{m_device.GetDevice(), m_allocator, m_draw_extent,
@@ -278,7 +75,11 @@ Renderer::Renderer(std::shared_ptr<Window> window, Camera const &camera, Chunk &
 
   m_texture = std::make_shared<Texture>(m_allocator, m_device, this, "textures/spritesheet_blocks.png");
   // UpdateTexturedMeshDescriptors();
-  m_imgui = ImGui{m_instance, m_window, &m_device};
+  m_imgui = ImGui{m_instance.GetInstance(), m_window, &m_device};
+
+  m_destructor.allocator = m_allocator;
+  m_destructor.renderer = this;
+  m_destructor.surface = m_surface;
 }
 
 Renderer::~Renderer() {
@@ -312,13 +113,7 @@ Renderer::~Renderer() {
     vkDestroyCommandPool(m_device.GetDevice(), frame.command_pool, nullptr);
   }
 
-  // vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
-
-#ifndef NDEBUG
-  if (m_messenger) {
-    vkDestroyDebugUtilsMessengerEXT(m_instance, m_messenger, nullptr);
-  }
-#endif
+  // vkDestroySurfaceKHR(m_instance.GetInstance(), m_surface, nullptr);
 }
 
 void Renderer::Draw() {
@@ -670,7 +465,7 @@ void Renderer::InitTexturedMeshPipeline() {
   builder.SetShaders(*vertex, *fragment);
   builder.SetInputTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
   builder.SetPolygonMode(VK_POLYGON_MODE_FILL);
-  builder.SetCullMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
+  builder.SetCullMode(VK_CULL_MODE_FRONT_BIT, VK_FRONT_FACE_CLOCKWISE);
   builder.DisableMSAA();
   builder.DisableBlending();
   builder.EnableDepthTest();
@@ -730,4 +525,15 @@ void Renderer::ResizeSwapchain() {
   }
   // UpdateDrawImageDescriptors();
 }
+
+RAIIDestructorForObjects::~RAIIDestructorForObjects() {
+  if (allocator) {
+    vmaDestroyAllocator(allocator);
+  }
+
+  if (surface) {
+    vkDestroySurfaceKHR(renderer->m_instance.GetInstance(), surface, nullptr);
+  }
+}
+
 } // namespace craft::vk
