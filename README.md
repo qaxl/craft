@@ -13,7 +13,7 @@ Custom Voxel Engine in C++ with Vulkan
 | ----------------------------------------------------- | ------------ |
 | Implement Vulkan abstractions for most things         | DONE         |
 | Implement voxel generation and meshing                | DONE         |
-| Implement world editing (building and breaking)       | UNDERWAY     |
+| Implement world editing (building and breaking)       | DONE         |
 | Play as blocks     that shoot each other              | NO           |
 
 More features will come, as they will be implemented. I'll try my best listing them all here.
@@ -26,7 +26,7 @@ More features will come, as they will be implemented. I'll try my best listing t
 
 ## Building
 
-All compilers should be supported, but no guarantee is given on MSVC. I only test every build with Clang, so G++ support isn't guaranteed either.
+All compilers should be supported. A GLSL shader compiler `glslc` is required, and the easiest way to install it is via the [Vulkan SDK](https://vulkan.lunarg.com/).
 
 All libraries are included within the repository. Clone with:
 
