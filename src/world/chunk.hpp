@@ -7,6 +7,7 @@ enum class BlockType : uint8_t {
   Air,
   Dirt,
   Lava,
+  Count,
 };
 
 struct Block {
@@ -15,7 +16,7 @@ struct Block {
 
 constexpr size_t const kMaxChunkDepth = 32;
 constexpr size_t const kMaxChunkWidth = 32;
-constexpr size_t const kMaxChunkHeight = 512;
+constexpr size_t const kMaxChunkHeight = 64;
 
 struct Chunk {
   // Z X Y

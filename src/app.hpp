@@ -22,6 +22,8 @@ class App {
   bool m_regenerate_with_one_block = false;
   float m_scale_factor = 10.0f;
   float m_max_height = 10.0f;
+  BlockType m_current_block_type = BlockType::Air;
+  bool m_replace = true;
 
   float time_taken_to_render = 0;
 

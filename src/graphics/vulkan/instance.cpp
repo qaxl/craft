@@ -72,6 +72,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL VkDebugMessageCallback(VkDebugUtilsMessage
                                                              VkDebugUtilsMessageTypeFlagsEXT messageTypes,
                                                              const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData,
                                                              void *pUserData) {
+
   const char *severityStr = "";
   switch (messageSeverity) {
   case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT:
@@ -110,6 +111,11 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL VkDebugMessageCallback(VkDebugUtilsMessage
   }
 
   std::cout << "[" << severityStr << "] [" << typeStr << "] " << pCallbackData->pMessage << std::endl;
+  // This is due to ImGui...
+  //if (pCallbackData->messageIdNumber == -920984000) {
+  //  __debugbreak();
+  //}
+
   return VK_FALSE;
 }
 

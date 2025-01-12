@@ -27,10 +27,13 @@ inline void GenerateChunk(bool generate_only_one_block, float max_generated_heig
       height = (height + 1.0f) / 2.0f;
       height *= max_generated_height;
 
-      uint32_t y = (2 + static_cast<uint32_t>(height)) % kMaxChunkHeight;
-      // out.blocks[y][x][z].block_type = BlockType::Dirt;
-      for (uint32_t yy = y; yy > 0; --yy) {
-        out.blocks[z][x][yy].block_type = BlockType::Dirt;
+      uint32_t y_ = (2 + static_cast<uint32_t>(height)) % kMaxChunkHeight;
+      for (uint32_t y = y_; y > 0; --y) {
+        if (y > 3) {
+          out.blocks[z][x][y].block_type = BlockType::Dirt;
+        } else {
+          out.blocks[z][x][y].block_type = BlockType::Lava;
+        }
       }
     }
   }

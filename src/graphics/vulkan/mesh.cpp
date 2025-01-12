@@ -52,7 +52,7 @@ MeshBuffers UploadMesh(Renderer *renderer, VkDevice device, VmaAllocator allocat
   return mesh;
 }
 
-enum class MeshFace { Front, Back, Left, Right, Top, Bottom };
+enum class MeshFace { Front, Back, Left, Right, Top, Bottom, Count };
 
 static void AddFace(MeshFace face, glm::vec3 pos, Rect uv, std::vector<Vtx> &vertices, std::vector<uint32_t> &indices) {
   uint32_t start_index = vertices.size();
@@ -107,28 +107,23 @@ static void AddFace(MeshFace face, glm::vec3 pos, Rect uv, std::vector<Vtx> &ver
 }
 
 static bool ShouldRender(Chunk *chunk, MeshFace face, int z, int x, int y) {
-  // TODO: implement this
-  // Check bounds first
-  if (z < 0 || x < 0 || y < 0 || z >= kMaxChunkDepth || x >= kMaxChunkWidth || y >= kMaxChunkHeight) {
-    return true;
-  }
-
   switch (face) {
   case MeshFace::Front:
-    return x + 1 >= kMaxChunkDepth || chunk->blocks[z][x + 1][y].block_type == BlockType::Air;
+    return x + 1 >= kMaxChunkWidth || chunk->blocks[z][x + 1][y].block_type == BlockType::Air;
   case MeshFace::Back:
     return x - 1 < 0 || chunk->blocks[z][x - 1][y].block_type == BlockType::Air;
   case MeshFace::Left:
-    return z + 1 < 0 || chunk->blocks[z + 1][x][y].block_type == BlockType::Air;
+    return z >= kMaxChunkDepth || chunk->blocks[z + 1][x][y].block_type == BlockType::Air;
   case MeshFace::Right:
-    return z - 1 >= kMaxChunkWidth || chunk->blocks[z - 1][x][y].block_type == BlockType::Air;
+    return z - 1 < 0 || chunk->blocks[z - 1][x][y].block_type == BlockType::Air;
   case MeshFace::Top:
     return y + 1 >= kMaxChunkHeight || chunk->blocks[z][x][y + 1].block_type == BlockType::Air;
   case MeshFace::Bottom:
     return y - 1 < 0 || chunk->blocks[z][x][y - 1].block_type == BlockType::Air;
-  }
 
-  return true;
+  default:
+    return true;
+  }
 }
 
 ChunkMesh ChunkMesh::GenerateChunkMeshFromChunk(Chunk *chunk) {
@@ -140,6 +135,12 @@ ChunkMesh ChunkMesh::GenerateChunkMeshFromChunk(Chunk *chunk) {
   static constexpr Rect DIRT_TEXTURE = {0.0f / 512.0f, 32.0f / 512.0f, 32.0f / 512.0f, 32.0f / 512.0f};
   static constexpr Rect DIRT_WITH_GRASS = {32.0f / 512.0f, 32.0f / 512.0f, 32.0f / 512.0f, 32.0f / 512.0f};
   static constexpr Rect LAVA_TEXTURE = {64.0f / 512.0f, 0.0f / 512.0f, 32.0f / 512.0f, 32.0f / 512.0f};
+
+  static constexpr Rect TEXTURE_LOOKUP[static_cast<int>(BlockType::Count)][static_cast<int>(MeshFace::Count)] = {
+      {DIRT_TEXTURE, DIRT_TEXTURE, DIRT_TEXTURE, DIRT_TEXTURE, DIRT_TEXTURE, DIRT_TEXTURE},
+      {DIRT_WITH_GRASS, DIRT_WITH_GRASS, DIRT_WITH_GRASS, DIRT_WITH_GRASS, GRASS_TEXTURE, DIRT_TEXTURE},
+      {LAVA_TEXTURE, LAVA_TEXTURE, LAVA_TEXTURE, LAVA_TEXTURE, LAVA_TEXTURE, LAVA_TEXTURE},
+  };
 
   for (int z = 0; z < kMaxChunkDepth; ++z) {
     for (int x = 0; x < kMaxChunkWidth; ++x) {
@@ -157,19 +158,13 @@ ChunkMesh ChunkMesh::GenerateChunkMeshFromChunk(Chunk *chunk) {
           if (!ShouldRender(chunk, current_face, z, x, y))
             continue;
 
-          Rect tex_coords;
           if (current_type == BlockType::Dirt) {
-            if (current_face == MeshFace::Top) {
-              tex_coords = GRASS_TEXTURE;
-            } else if (current_face == MeshFace::Bottom) {
-              tex_coords = DIRT_TEXTURE;
-            } else {
-              tex_coords = DIRT_WITH_GRASS;
+            if (chunk->blocks[z][x][y + 1].block_type != BlockType::Air) {
+              current_type = BlockType::Air;
             }
-          } else {
-            tex_coords = LAVA_TEXTURE;
           }
 
+          Rect tex_coords = TEXTURE_LOOKUP[static_cast<int>(current_type)][static_cast<int>(current_face)];
           AddFace(current_face, block_pos, tex_coords, mesh.vertices, mesh.indices);
         }
       }
