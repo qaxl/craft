@@ -18,6 +18,7 @@
 #include "platform/window.hpp"
 #include "swapchain.hpp"
 #include "util/raii.hpp"
+#include "world/world.hpp"
 
 namespace craft::vk {
 class Texture;
@@ -56,7 +57,7 @@ struct ImmediateSubmit {
 
 class Renderer {
 public:
-  Renderer(std::shared_ptr<Window> window, Camera const &camera, Chunk &chunk);
+  Renderer(std::shared_ptr<Window> window, Camera const &camera, World *chunk);
   ~Renderer();
 
   Renderer(const Renderer &) = delete;
@@ -86,7 +87,7 @@ private:
 private:
   std::shared_ptr<Window> m_window;
   Camera const &m_camera;
-  Chunk &m_chunk;
+  World *m_world;
 
   Instance m_instance;
 
@@ -118,7 +119,7 @@ private:
   VkPipelineLayout m_textured_mesh_pipeline_layout;
   VkPipeline m_textured_mesh_pipeline;
 
-  MeshBuffers m_mesh{};
+  std::vector<MeshBuffers> m_meshes{};
   MeshBuffers m_crosshair_mesh{};
 
   ImmediateSubmit m_imm;

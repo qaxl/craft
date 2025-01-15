@@ -16,9 +16,9 @@ enum class CameraMovement { Forward, Backward, Left, Right, Up, Down };
 
 constexpr float const kYaw = -90.0f;
 constexpr float const kPitch = 0.0f;
-constexpr float const kSpeed = 2.5f;
+constexpr float const kSpeed = 4.5f;
 constexpr float const kSensitivity = 0.1f;
-constexpr float const kFov = 45.0f;
+constexpr float const kFov = 70.0f;
 
 class Camera {
 public:
@@ -28,22 +28,24 @@ public:
 
   glm::mat4 ViewMatrix() const { return glm::lookAtLH(m_position, m_position + m_front, m_up); }
 
-  float GetFov() const { return m_fov; }
+  float GetFov() const { return glm::radians(m_fov); }
+
+  // TODO: dynamic near/far plane
+  float GetFarPlane() const { return 16.0f * 64.0f; }
   glm::vec3 GetForward() const { return m_front; }
   glm::vec3 GetPosition() const { return m_position; }
 
   void ProcessKeyboard(CameraMovement direction, float delta) {
     float velocity = m_movement_speed * delta;
-    glm::vec3 front = m_front;
-    front.y = 0.0f;
+    glm::vec3 front = glm::normalize(glm::vec3(m_front.x, 0.0f, m_front.z));
 
     switch (direction) {
     case CameraMovement::Forward:
-      m_position += front * velocity;
+      m_position -= front * velocity;
       break;
 
     case CameraMovement::Backward:
-      m_position -= front * velocity;
+      m_position += front * velocity;
       break;
 
     case CameraMovement::Left:
@@ -55,11 +57,11 @@ public:
       break;
 
     case CameraMovement::Up:
-      m_position -= m_up * velocity;
+      m_position.y -= velocity;
       break;
 
     case CameraMovement::Down:
-      m_position += m_up * velocity;
+      m_position.y += velocity;
       break;
     }
   }
@@ -68,8 +70,8 @@ public:
     x *= m_mouse_sensitivity;
     y *= m_mouse_sensitivity;
 
-    m_yaw -= x;
-    m_pitch += y;
+    m_yaw += x;
+    m_pitch -= y;
 
     if (constrain) {
       m_pitch = std::clamp(m_pitch, -89.0f, 89.0f);
@@ -80,7 +82,7 @@ public:
 
   void ProcessMouseScroll(float y) {
     m_fov -= y;
-    m_fov = std::clamp(m_fov, 1.0f, 90.0f);
+    m_fov = std::clamp(m_fov, 30.0f, 120.0f);
   }
 
   void IncreaseMovementSpeedBy(float what) { m_movement_speed += what; }

@@ -18,6 +18,7 @@
 #include "texture.hpp"
 #include "util/error.hpp"
 #include "utils.hpp"
+#include "world/chunk.hpp"
 
 namespace craft::vk {
 constexpr DeviceFeatures const kDeviceFeatures = DeviceFeatures{
@@ -46,8 +47,8 @@ static VmaAllocator CreateAllocator(Device *device) {
   return allocator;
 }
 
-Renderer::Renderer(std::shared_ptr<Window> window, Camera const &camera, Chunk &chunk)
-    : m_window{window}, m_camera{camera}, m_chunk{chunk}, m_instance{},
+Renderer::Renderer(std::shared_ptr<Window> window, Camera const &camera, World *world)
+    : m_window{window}, m_camera{camera}, m_world{world}, m_instance{},
       m_device{m_instance.GetInstance(), {DeviceExtension{VK_KHR_SWAPCHAIN_EXTENSION_NAME}}, &kDeviceFeatures},
       m_surface{m_window->CreateSurface(m_instance.GetInstance())}, m_draw_extent{m_window->GetExtent()},
       m_swapchain{&m_device, m_surface, m_draw_extent},
@@ -90,8 +91,11 @@ Renderer::Renderer(std::shared_ptr<Window> window, Camera const &camera, Chunk &
 Renderer::~Renderer() {
   m_device.WaitIdle();
 
-  DestroyBuffer(*m_allocator, std::move(m_mesh.index));
-  DestroyBuffer(*m_allocator, std::move(m_mesh.vertex));
+  for (auto &mesh : m_meshes) {
+    DestroyBuffer(*m_allocator, std::move(mesh.index));
+    DestroyBuffer(*m_allocator, std::move(mesh.vertex));
+  }
+  m_meshes.clear();
 
   vkDestroyPipelineLayout(m_device.GetDevice(), m_textured_mesh_pipeline_layout, nullptr);
   vkDestroyPipeline(m_device.GetDevice(), m_textured_mesh_pipeline, nullptr);
@@ -303,24 +307,31 @@ void Renderer::DrawGeometry(VkCommandBuffer cmd, AllocatedImage &render_target, 
   vkCmdSetScissor(cmd, 0, 1, &scissor);
 
   vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_textured_mesh_pipeline);
+  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_textured_mesh_pipeline_layout, 0, 1,
+                          &m_textured_mesh_descriptor_set, 0, nullptr);
 
   {
-    DrawPushConstants push_constants;
-    push_constants.vertex_buffer = m_mesh.vertex_addr;
-    push_constants.projection = glm::infinitePerspectiveLH_ZO(m_camera.GetFov(),
-                                                              static_cast<float>(m_draw_extent.width) /
-                                                                  static_cast<float>(m_draw_extent.height),
-                                                              0.1f) *
-                                m_camera.ViewMatrix();
+    size_t index = 0;
+    for (auto &mesh : m_meshes) {
+      DrawPushConstants push_constants;
+      push_constants.vertex_buffer = mesh.vertex_addr;
+      // Position meshes in a grid with proper spacing (16 units between chunks)
+      push_constants.projection =
+          glm::perspective(m_camera.GetFov(),
+                           static_cast<float>(m_draw_extent.width) / static_cast<float>(m_draw_extent.height), 0.1f,
+                           m_camera.GetFarPlane()) *
+          m_camera.ViewMatrix() *
+          glm::translate(glm::mat4(1.0f), glm::vec3(mesh.chunk->x * kMaxChunkWidth, mesh.chunk->y * kMaxChunkHeight,
+                                                    mesh.chunk->z * kMaxChunkDepth));
 
-    vkCmdPushConstants(cmd, m_textured_mesh_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(DrawPushConstants),
-                       &push_constants);
+      vkCmdPushConstants(cmd, m_textured_mesh_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(DrawPushConstants),
+                         &push_constants);
 
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_textured_mesh_pipeline_layout, 0, 1,
-                            &m_textured_mesh_descriptor_set, 0, nullptr);
+      vkCmdBindIndexBuffer(cmd, mesh.index.buffer, 0, VK_INDEX_TYPE_UINT32);
+      vkCmdDrawIndexed(cmd, mesh.index.info.size / 4, 1, 0, 0, 0);
 
-    vkCmdBindIndexBuffer(cmd, m_mesh.index.buffer, 0, VK_INDEX_TYPE_UINT32);
-    vkCmdDrawIndexed(cmd, m_mesh.index.info.size / 4, 1, 0, 0, 0);
+      index += 1;
+    }
   }
   // FIXME: This is a temporary hack to draw the crosshair
   {
@@ -385,14 +396,19 @@ void Renderer::InitTexturedMeshPipeline() {
 }
 
 void Renderer::InitDefaultData() {
-  ChunkMesh mesh = ChunkMesh::GenerateChunkMeshFromChunk(&m_chunk);
   m_device.WaitIdle();
-  if (m_mesh.vertex.buffer && m_mesh.index.buffer) {
-    DestroyBuffer(*m_allocator, std::move(m_mesh.vertex));
-    DestroyBuffer(*m_allocator, std::move(m_mesh.index));
+  for (auto &mesh : m_meshes) {
+    DestroyBuffer(*m_allocator, std::move(mesh.index));
+    DestroyBuffer(*m_allocator, std::move(mesh.vertex));
   }
-  m_mesh = UploadMesh(this, m_device.GetDevice(), *m_allocator, mesh.indices, mesh.vertices);
-  std::cout << m_mesh.index.info.size / 4 << ',' << mesh.indices.size() << std::endl;
+  m_meshes.clear();
+
+  for (auto &chunk : m_world->GetChunks()) {
+    ChunkMesh mesh = ChunkMesh::GenerateChunkMeshFromChunk(&chunk);
+    auto &mesh_ =
+        m_meshes.emplace_back(UploadMesh(this, m_device.GetDevice(), *m_allocator, mesh.indices, mesh.vertices));
+    mesh_.chunk = &chunk;
+  }
 }
 
 void Renderer::UpdateTexturedMeshDescriptors(std::shared_ptr<Texture> texture) {

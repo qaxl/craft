@@ -15,6 +15,7 @@ class App {
   std::shared_ptr<vk::Renderer> m_renderer;
   std::shared_ptr<WidgetManager> m_widget_manager;
   std::unique_ptr<Chunk> m_chunk;
+  World m_world;
 
   Camera m_camera;
   FastNoiseLite m_noise;

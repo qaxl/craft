@@ -109,17 +109,17 @@ static void AddFace(MeshFace face, glm::vec3 pos, Rect uv, std::vector<Vtx> &ver
 static bool ShouldRender(Chunk *chunk, MeshFace face, int z, int x, int y) {
   switch (face) {
   case MeshFace::Front:
-    return x + 1 >= kMaxChunkWidth || chunk->blocks[z][x + 1][y].block_type == BlockType::Air;
+    return x == (kMaxChunkWidth - 1) || chunk->blocks[z][x + 1][y].block_type == BlockType::Air;
   case MeshFace::Back:
-    return x - 1 < 0 || chunk->blocks[z][x - 1][y].block_type == BlockType::Air;
+    return x == 0 || chunk->blocks[z][x - 1][y].block_type == BlockType::Air;
   case MeshFace::Left:
-    return z >= kMaxChunkDepth || chunk->blocks[z + 1][x][y].block_type == BlockType::Air;
+    return z == (kMaxChunkDepth - 1) || chunk->blocks[z + 1][x][y].block_type == BlockType::Air;
   case MeshFace::Right:
-    return z - 1 < 0 || chunk->blocks[z - 1][x][y].block_type == BlockType::Air;
+    return z == 0 || chunk->blocks[z - 1][x][y].block_type == BlockType::Air;
   case MeshFace::Top:
-    return y + 1 >= kMaxChunkHeight || chunk->blocks[z][x][y + 1].block_type == BlockType::Air;
+    return y == (kMaxChunkHeight - 1) || chunk->blocks[z][x][y + 1].block_type == BlockType::Air;
   case MeshFace::Bottom:
-    return y - 1 < 0 || chunk->blocks[z][x][y - 1].block_type == BlockType::Air;
+    return y == 0 || chunk->blocks[z][x][y - 1].block_type == BlockType::Air;
 
   default:
     return true;
@@ -165,6 +165,14 @@ ChunkMesh ChunkMesh::GenerateChunkMeshFromChunk(Chunk *chunk) {
           }
 
           Rect tex_coords = TEXTURE_LOOKUP[static_cast<int>(current_type)][static_cast<int>(current_face)];
+          float offsetX = 1.0f / 32.0f / 512.0f;
+          float offsetY = 1.0f / 32.0f / 512.0f;
+
+          tex_coords.x += offsetX;
+          tex_coords.y += offsetY;
+          tex_coords.w -= 2.0f * offsetX;
+          tex_coords.h -= 2.0f * offsetY;
+
           AddFace(current_face, block_pos, tex_coords, mesh.vertices, mesh.indices);
         }
       }

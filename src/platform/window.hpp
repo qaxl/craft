@@ -188,7 +188,12 @@ public:
   }
 
   bool IsKeyPressed(KeyboardKey key) { return m_key_down.test(static_cast<size_t>(key)); }
-  bool IsButtonPressed(uint8_t button) { return m_mouse_down.test(button); }
+  bool IsButtonPressed(uint8_t button) {
+    bool is = m_mouse_down.test(button);
+    m_mouse_down.reset(button);
+    return is;
+  }
+
   std::pair<float, float> GetRelativeMouseMotion() { return m_relative_motion; }
   float GetMouseScroll() { return m_mouse_scroll; }
 

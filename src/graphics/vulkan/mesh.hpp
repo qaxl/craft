@@ -40,6 +40,7 @@ struct MeshBuffers {
   AllocatedBuffer index;
   AllocatedBuffer vertex;
   VkDeviceAddress vertex_addr;
+  Chunk *chunk;
 };
 
 MeshBuffers UploadMesh(Renderer *renderer, VkDevice device, VmaAllocator allocator, std::span<uint32_t> indices,

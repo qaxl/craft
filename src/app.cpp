@@ -26,7 +26,7 @@ App::~App() {
   // SteamAPI_Shutdown();
 }
 
-App::App() {
+App::App() : m_world{&m_noise} {
   // if (!SteamAPI_Init()) {
   //   // TODO: not make this forced.
   //   RuntimeError::Throw("Steamworks API couldn't initialize.");
@@ -54,8 +54,10 @@ App::App() {
   m_chunk = std::make_unique<Chunk>();
   GenerateChunk(false, 10.0f, m_noise, *m_chunk);
 
+  m_world.Generate();
+
   m_window = std::make_shared<Window>(1024, 768, "test");
-  m_renderer = std::make_shared<vk::Renderer>(m_window, m_camera, *m_chunk);
+  m_renderer = std::make_shared<vk::Renderer>(m_window, m_camera, &m_world);
 
   m_widget_manager = std::make_shared<WidgetManager>();
   m_widget_manager->AddWidget(std::make_unique<UtilWidget>());
@@ -235,19 +237,23 @@ bool App::Run() {
         }
 
         if (found_intersection) {
-          glm::vec3 snapped_position = glm::floor(closest_block_position + 0.5f); // Snap to grid
-          int bx = static_cast<int>(-snapped_position.x);
-          int by = static_cast<int>(-snapped_position.y);
-          int bz = static_cast<int>(-snapped_position.z);
+          int bx = static_cast<int>(-closest_block_position.x);
+          int by = static_cast<int>(-closest_block_position.y);
+          int bz = static_cast<int>(-closest_block_position.z);
 
           if (bx >= 0 && bx < kMaxChunkWidth && by >= 0 && by < kMaxChunkHeight && bz >= 0 && bz < kMaxChunkDepth) {
+            std::cout << "Block position: " << bx << ", " << by << ", " << bz << std::endl;
             if (m_replace) {
               // Replace the block
               m_chunk->blocks[bz][bx][by].block_type = m_current_block_type;
             } else {
               // Add a block in front
-              glm::vec3 new_block_pos = snapped_position - glm::normalize(m_camera.GetForward());
-              new_block_pos = glm::floor(new_block_pos + 0.5f); // Snap to grid
+              glm::vec3 new_block_pos = closest_block_position - glm::normalize(m_camera.GetForward());
+
+              std::cout << "Closest block position: " << closest_block_position.x << ", " << closest_block_position.y
+                        << ", " << closest_block_position.z << std::endl;
+              std::cout << "Placing a block at: " << new_block_pos.x << ", " << new_block_pos.y << ", "
+                        << new_block_pos.z << std::endl;
 
               int nx = static_cast<int>(-new_block_pos.x);
               int ny = static_cast<int>(-new_block_pos.y);
@@ -261,8 +267,8 @@ bool App::Run() {
             // Reinitialize data if needed
             m_renderer->InitDefaultData();
           } else {
-            std::cerr << "Block position out of bounds: " << snapped_position.x << ", " << snapped_position.y << ", "
-                      << snapped_position.z << std::endl;
+            std::cerr << "Block position out of bounds: " << closest_block_position.x << ", "
+                      << closest_block_position.y << ", " << closest_block_position.z << std::endl;
           }
         }
         // if (found_intersection) {
