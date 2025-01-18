@@ -7,6 +7,6 @@
 [submodule "deps/imgui"]
 	path = deps/imgui
 	url = https://github.com/ocornut/imgui
-[submodule "deps/implot"]
-	path = deps/implot
-	url = https://github.com/epezent/implot
+[submodule "deps/volk"]
+	path = deps/volk
+	url = https://github.com/zeux/volk

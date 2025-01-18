@@ -22,8 +22,12 @@ public:
   FORCE_INLINE VkSampler GetSampler() { return m_sampler; }
 
 private:
+  void GenerateMipmaps(Device &device, Renderer *renderer, VmaAllocator allocator);
+
+private:
   int m_width{};
   int m_height{};
+  uint32_t m_mip_levels = 1;
 
   VmaAllocator m_allocator;
   VkDevice m_device;

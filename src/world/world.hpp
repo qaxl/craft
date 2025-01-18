@@ -16,7 +16,7 @@ public:
     for (int x = 0; x < 32; ++x) {
       for (int z = 0; z < 32; ++z) {
         auto &chunk = m_chunks.emplace_back();
-        GenerateChunk(false, 12.0f, *m_noise, chunk, 1.0f, x * kMaxChunkWidth, z * kMaxChunkDepth);
+        GenerateChunk(false, 12.0f, *m_noise, chunk, 1.0f, -x * kMaxChunkWidth, z * kMaxChunkDepth);
         chunk.x = x;
         chunk.z = z;
         chunk.y = 0;

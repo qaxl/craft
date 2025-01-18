@@ -23,7 +23,7 @@ inline void GenerateChunk(bool generate_only_one_block, float max_generated_heig
 #pragma omp parallel for
   for (int z = 0; z < kMaxChunkDepth; ++z) {
     for (int x = 0; x < kMaxChunkWidth; ++x) {
-      float height = noise.GetNoise(static_cast<float>(start_x + x) * scale, static_cast<float>(start_z + z) * scale);
+      float height = noise.GetNoise(static_cast<float>(-start_x + x) * scale, static_cast<float>(start_z + z) * scale);
       height = (height + 1.0f) / 2.0f;
       height *= max_generated_height;
 

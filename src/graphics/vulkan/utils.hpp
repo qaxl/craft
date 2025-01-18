@@ -12,6 +12,7 @@
 // to load vulkan functions.
 
 #include "util/error.hpp"
+#include "vulkan/vulkan_core.h"
 
 #define STRINGIFY(x) #x
 #define STRING(x) STRINGIFY(x)
@@ -243,27 +244,27 @@ static constexpr VkSubmitInfo2 SubmitInfo(VkCommandBufferSubmitInfo *cmd, VkSema
   return info;
 }
 
-static VkImageSubresourceRange ImageSubresourceRange(VkImageAspectFlags aspect_mask) {
-  return VkImageSubresourceRange{
-      .aspectMask = aspect_mask, .levelCount = VK_REMAINING_MIP_LEVELS, .layerCount = VK_REMAINING_ARRAY_LAYERS};
+static VkImageSubresourceRange ImageSubresourceRange(VkImageAspectFlags aspect_mask,
+                                                     uint32_t mip_levels = VK_REMAINING_MIP_LEVELS,
+                                                     uint32_t array_layers = VK_REMAINING_ARRAY_LAYERS) {
+  return VkImageSubresourceRange{.aspectMask = aspect_mask, .levelCount = mip_levels, .layerCount = array_layers};
 }
 
-static void TransitionImage(VkCommandBuffer cmd, VkImage image, VkImageLayout current_layout,
-                            VkImageLayout new_layout) {
-  VkImageMemoryBarrier2 image_barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-
-  image_barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-  image_barrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
-  image_barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-  image_barrier.dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT;
-
-  image_barrier.oldLayout = current_layout;
-  image_barrier.newLayout = new_layout;
-
-  VkImageAspectFlags aspect_mask =
-      (new_layout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
-  image_barrier.subresourceRange = ImageSubresourceRange(aspect_mask);
-  image_barrier.image = image;
+static void TransitionImage(VkCommandBuffer cmd, VkImage image, VkImageLayout old_layout, VkImageLayout new_layout,
+                            VkImageSubresourceRange subresource_range, VkPipelineStageFlags2 src_stage_mask,
+                            VkAccessFlags2 src_access_mask, VkPipelineStageFlags2 dst_stage_mask,
+                            VkAccessFlags2 dst_access_mask) {
+  VkImageMemoryBarrier2 image_barrier{
+      .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+      .srcStageMask = src_stage_mask,
+      .srcAccessMask = src_access_mask,
+      .dstStageMask = dst_stage_mask,
+      .dstAccessMask = dst_access_mask,
+      .oldLayout = old_layout,
+      .newLayout = new_layout,
+      .image = image,
+      .subresourceRange = subresource_range,
+  };
 
   VkDependencyInfo dep_info{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
   dep_info.imageMemoryBarrierCount = 1;

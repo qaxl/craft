@@ -165,8 +165,8 @@ ChunkMesh ChunkMesh::GenerateChunkMeshFromChunk(Chunk *chunk) {
           }
 
           Rect tex_coords = TEXTURE_LOOKUP[static_cast<int>(current_type)][static_cast<int>(current_face)];
-          float offsetX = 1.0f / 32.0f / 512.0f;
-          float offsetY = 1.0f / 32.0f / 512.0f;
+          float offsetX = 2.0f / 32.0f / 512.0f;
+          float offsetY = 2.0f / 32.0f / 512.0f;
 
           tex_coords.x += offsetX;
           tex_coords.y += offsetY;

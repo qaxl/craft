@@ -20,7 +20,7 @@ constexpr size_t const kMaxChunkHeight = 64;
 
 struct Chunk {
   // Z X Y
-  uint16_t x, z;
+  uint8_t x, z;
   uint8_t y;
   Block blocks[kMaxChunkDepth][kMaxChunkWidth][kMaxChunkHeight];
 };

@@ -229,7 +229,7 @@ void Renderer::InitPipelines() { InitTexturedMeshPipeline(); }
 void Renderer::InitImmediateSubmit() {
   VkCommandPoolCreateInfo create_info{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
   // TODO: dynamic
-  create_info.queueFamilyIndex = m_device.GetTransferQueueFamily();
+  create_info.queueFamilyIndex = m_device.GetGraphicsQueueFamily();
   VK_CHECK(vkCreateCommandPool(m_device.GetDevice(), &create_info, nullptr, &m_imm.pool));
 
   VkCommandBufferAllocateInfo alloc_info{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
@@ -266,7 +266,7 @@ void Renderer::SubmitNow(std::function<void(VkCommandBuffer)> f) {
   cmd_info.commandBuffer = m_imm.cmd;
   VkSubmitInfo2 submit = SubmitInfo(&cmd_info, nullptr, nullptr);
 
-  VK_CHECK(vkQueueSubmit2(m_device.GetTransferQueue(), 1, &submit, m_imm.fence));
+  VK_CHECK(vkQueueSubmit2(m_device.GetGraphicsQueue(), 1, &submit, m_imm.fence));
   VK_CHECK(vkWaitForFences(m_device.GetDevice(), 1, &m_imm.fence, VK_TRUE, 1000'000'000));
 }
 
@@ -318,7 +318,7 @@ void Renderer::DrawGeometry(VkCommandBuffer cmd, AllocatedImage &render_target, 
       // Position meshes in a grid with proper spacing (16 units between chunks)
       push_constants.projection =
           glm::perspective(m_camera.GetFov(),
-                           static_cast<float>(m_draw_extent.width) / static_cast<float>(m_draw_extent.height), 0.1f,
+                           static_cast<float>(m_draw_extent.width) / static_cast<float>(m_draw_extent.height), 1.0f,
                            m_camera.GetFarPlane()) *
           m_camera.ViewMatrix() *
           glm::translate(glm::mat4(1.0f), glm::vec3(mesh.chunk->x * kMaxChunkWidth, mesh.chunk->y * kMaxChunkHeight,
@@ -378,7 +378,7 @@ void Renderer::InitTexturedMeshPipeline() {
   builder.SetShaders(*vertex, *fragment);
   builder.SetInputTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
   builder.SetPolygonMode(VK_POLYGON_MODE_FILL);
-  builder.SetCullMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
+  builder.SetCullMode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_CLOCKWISE);
   builder.DisableMSAA();
   builder.EnableAlphaBlending();
   builder.EnableDepthTest();
@@ -435,11 +435,11 @@ void Renderer::ResizeSwapchain() {
 
   // FIXME: temporary
   std::array<Vtx, 4> vertices = {
-      Vtx{.pos = {m_draw_extent.width / 2 - 15, m_draw_extent.height / 2 - 15, 1}, .uv = {0, 0}},
-      Vtx{.pos = {m_draw_extent.width / 2 - 15, m_draw_extent.height / 2 + 15, 1}, .uv = {0, 16.0f / 512.0f}},
-      Vtx{.pos = {m_draw_extent.width / 2 + 15, m_draw_extent.height / 2 + 15, 1},
+      Vtx{.pos = {m_draw_extent.width / 2 - 10, m_draw_extent.height / 2 - 10, 1}, .uv = {0, 0}},
+      Vtx{.pos = {m_draw_extent.width / 2 - 10, m_draw_extent.height / 2 + 10, 1}, .uv = {0, 16.0f / 512.0f}},
+      Vtx{.pos = {m_draw_extent.width / 2 + 10, m_draw_extent.height / 2 + 10, 1},
           .uv = {16.0f / 512.0f, 16.0f / 512.0f}},
-      Vtx{.pos = {m_draw_extent.width / 2 + 15, m_draw_extent.height / 2 - 15, 1}, .uv = {16.0f / 512.0f, 0}},
+      Vtx{.pos = {m_draw_extent.width / 2 + 10, m_draw_extent.height / 2 - 10, 1}, .uv = {16.0f / 512.0f, 0}},
   };
   std::array<uint32_t, 6> indices = {0, 1, 3, 1, 2, 3};
 

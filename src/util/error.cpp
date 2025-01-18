@@ -139,6 +139,7 @@ void RuntimeError::SetErrorString(std::string_view description, ErrorFlags flags
       s_description += GetWSAErrorString(WSAGetLastError());
     }
 
+#if false
     if (flags & EF_DumpStacktrace) {
       auto st = std::stacktrace::current();
       s_description += "\nStacktrace dump:\n\n";
@@ -149,6 +150,7 @@ void RuntimeError::SetErrorString(std::string_view description, ErrorFlags flags
         s_description += std::format("{}:{}@{}\n", fn.source_file(), fn.source_line(), fn.description());
       }
     }
+#endif
   }
 
   s_has_an_error.store(true);
