@@ -10,6 +10,9 @@
 #include "utils.hpp"
 #include "vulkan/vulkan_core.h"
 
+// TODO: replace with custom logger
+#include <iostream>
+
 namespace craft::vk {
 Device::Device(VkInstance instance, std::initializer_list<DeviceExtension> extensions, const DeviceFeatures *features)
     : m_instance{instance} {
@@ -55,6 +58,8 @@ void Device::SelectPhysicalDevice(std::initializer_list<DeviceExtension> extensi
           VkBool32 requested = reinterpret_cast<const VkBool32 *>(&features->base_features)[offset];
 
           if (!supported && requested) {
+            std::cout << "Not all base required features are supported by device \"" << props.deviceName << "\""
+                      << std::endl;
             return;
           }
         }
@@ -66,6 +71,8 @@ void Device::SelectPhysicalDevice(std::initializer_list<DeviceExtension> extensi
           VkBool32 requested = reinterpret_cast<const VkBool32 *>(&features->vk_1_2_features)[offset];
 
           if (!supported && requested) {
+            std::cout << "Not all Vulkan 1.2 required features are supported by device \"" << props.deviceName << "\""
+                      << std::endl;
             return;
           }
         }
@@ -76,6 +83,8 @@ void Device::SelectPhysicalDevice(std::initializer_list<DeviceExtension> extensi
           VkBool32 requested = reinterpret_cast<const VkBool32 *>(&features->vk_1_3_features)[offset];
 
           if (!supported && requested) {
+            std::cout << "Not all Vulkan 1.3 required features are supported by device \"" << props.deviceName << "\""
+                      << std::endl;
             return;
           }
         }
@@ -105,6 +114,14 @@ void Device::SelectPhysicalDevice(std::initializer_list<DeviceExtension> extensi
 
         if (std::find_if(required.begin(), required.end(), [](DeviceExtension ext) { return !ext.required; }) !=
             required.end()) {
+          std::cout << "Not all required extensions are supported by device \"" << props.deviceName << "\""
+                    << std::endl;
+
+          std::cout << "Required extensions are: ";
+          for (auto &ext : required) {
+            std::cout << ext.name << " ";
+          }
+          std::cout << std::endl;
           return;
         }
 
@@ -128,6 +145,7 @@ void Device::SelectPhysicalDevice(std::initializer_list<DeviceExtension> extensi
         }
 
         if (!indices.graphics_queue_family.has_value()) {
+          std::cout << "No graphics queue family found for device \"" << props.deviceName << "\"" << std::endl;
           return;
         }
 
@@ -137,7 +155,9 @@ void Device::SelectPhysicalDevice(std::initializer_list<DeviceExtension> extensi
                                                      props.deviceName, extensions_enabled});
       });
 
+  std::cout << "Suitable devices: " << suitable_devices.size() << std::endl;
   m_devices = std::move(suitable_devices);
+  std::cout << "Suitable devices (2): " << m_devices.size() << std::endl;
   if (m_devices.empty()) {
     RuntimeError::Throw(
         "Not a single suitable Vulkan-capable device were found in the system. Please ensure you have Vulkan-capable "

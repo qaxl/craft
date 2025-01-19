@@ -31,7 +31,7 @@ public:
   float GetFov() const { return glm::radians(m_fov); }
 
   // TODO: dynamic near/far plane
-  float GetFarPlane() const { return 16.0f * 64.0f; }
+  float GetFarPlane() const { return 5000.0f; }
   glm::vec3 GetForward() const { return m_front; }
   glm::vec3 GetPosition() const { return m_position; }
 

@@ -91,8 +91,8 @@ Texture::Texture(VmaAllocator allocator, Device &device, Renderer *renderer, con
   }
 
   m_mip_levels = static_cast<uint32_t>(std::floor(std::log2(std::max(m_width, m_height)))) + 1;
-  if (m_mip_levels > 5) {
-    m_mip_levels = 5;
+  if (m_mip_levels > 6) {
+    m_mip_levels = 6;
   }
 
   VkImageCreateInfo image_info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};

@@ -1,4 +1,5 @@
 #include "app.hpp"
+#include "SDL3/SDL_video.h"
 #include <cstdint>
 
 #define GLM_ENABLE_EXPERIMENTAL
@@ -21,36 +22,33 @@
 #include "world/generator.hpp"
 
 namespace craft {
+static SDL_GLContext ctx = nullptr;
+
 App::~App() {
+  if (ctx) {
+    SDL_GL_DestroyContext(ctx);
+  }
+
   SDL_Quit();
-  // SteamAPI_Shutdown();
 }
 
-App::App() : m_world{&m_noise} {
-  // if (!SteamAPI_Init()) {
-  //   // TODO: not make this forced.
-  //   RuntimeError::Throw("Steamworks API couldn't initialize.");
-  // }
+void App::ParseParameters(int argc, char **argv) {
+  for (int i = 0; i < argc; ++i) {
+  }
+}
+
+App::App(int argc, char **argv) : m_world{&m_noise} {
+  ParseParameters(argc, argv);
 
   if (SDL_Init(SDL_INIT_VIDEO) == false) {
     RuntimeError::Throw("SDL Initialization Failure", EF_AppendSDLErrors);
   }
 
   if (volkInitialize() != VK_SUCCESS) {
-    RuntimeError::Throw(
-        "Vulkan Initialization Failure: Couldn't load Vulkan library functions. Does this computer support rendering "
-        "with Vulkan? Currently, we do not support graphics APIs other than Vulkan.\nOpenGL support may be added in "
-        "the "
-        "future for better compatibility with older hardware.\nIf you have hardware that is newer than, let's say, the "
-        "last 5 to 10 years, then it most likely does support Vulkan 1.3. If that's the case, consider updating your "
-        "graphics drivers.\n\nRead more for AMD graphics cards: "
-        "https://www.amd.com/en/support/download/drivers.html\nRead more for NVIDIA graphics cards: "
-        "https://www.nvidia.com/en-us/drivers/\n\nIf upgrading your drivers doesn't fix this issue, you most likely do "
-        "not have support for Vulkan 1.3, which is the minimum required version for this application to run.\nAnd if "
-        "you "
-        "have the ability to program in OpenGL/DirectX 11, proficiently, you're welcome contributing into the "
-        "framework that the current application is running from https://github.com/qaxl/craft :)");
+    RuntimeError::Throw("Vulkan Initialization Failure. Try updating your drivers. This application requires Vulkan to "
+                        "operate, and must quit now.");
   }
+
   m_chunk = std::make_unique<Chunk>();
   GenerateChunk(false, 10.0f, m_noise, *m_chunk);
 
@@ -201,6 +199,10 @@ bool App::Run() {
         m_current_block_type = static_cast<BlockType>(static_cast<int>(m_current_block_type) + 1) == BlockType::Count
                                    ? BlockType::Air
                                    : static_cast<BlockType>(static_cast<int>(m_current_block_type) + 1);
+      }
+
+      if (m_window->IsKeyPressed(KeyboardKey::LCtrl)) {
+        m_camera.IncreaseMovementSpeedBy(5.0f);
       }
 
       if (m_window->IsButtonPressed(1)) {

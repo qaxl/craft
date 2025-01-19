@@ -317,12 +317,13 @@ void Renderer::DrawGeometry(VkCommandBuffer cmd, AllocatedImage &render_target, 
       push_constants.vertex_buffer = mesh.vertex_addr;
       // Position meshes in a grid with proper spacing (16 units between chunks)
       push_constants.projection =
-          glm::perspective(m_camera.GetFov(),
-                           static_cast<float>(m_draw_extent.width) / static_cast<float>(m_draw_extent.height), 1.0f,
-                           m_camera.GetFarPlane()) *
+          glm::perspectiveLH_ZO(m_camera.GetFov(),
+                                static_cast<float>(m_draw_extent.width) / static_cast<float>(m_draw_extent.height),
+                                0.1f, m_camera.GetFarPlane()) *
           m_camera.ViewMatrix() *
-          glm::translate(glm::mat4(1.0f), glm::vec3(mesh.chunk->x * kMaxChunkWidth, mesh.chunk->y * kMaxChunkHeight,
-                                                    mesh.chunk->z * kMaxChunkDepth));
+          glm::translate(glm::mat4(1.0f), glm::vec3(-static_cast<float>(mesh.chunk->x) * kMaxChunkWidth,
+                                                    -static_cast<float>(mesh.chunk->y) * kMaxChunkHeight,
+                                                    -static_cast<float>(mesh.chunk->z) * kMaxChunkDepth));
 
       vkCmdPushConstants(cmd, m_textured_mesh_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(DrawPushConstants),
                          &push_constants);
@@ -378,7 +379,7 @@ void Renderer::InitTexturedMeshPipeline() {
   builder.SetShaders(*vertex, *fragment);
   builder.SetInputTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
   builder.SetPolygonMode(VK_POLYGON_MODE_FILL);
-  builder.SetCullMode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_CLOCKWISE);
+  builder.SetCullMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
   builder.DisableMSAA();
   builder.EnableAlphaBlending();
   builder.EnableDepthTest();

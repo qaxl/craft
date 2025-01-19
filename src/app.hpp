@@ -9,10 +9,10 @@
 #include <FastNoiseLite/FastNoiseLite.h>
 
 namespace craft {
-
 class App {
   std::shared_ptr<Window> m_window;
   std::shared_ptr<vk::Renderer> m_renderer;
+
   std::shared_ptr<WidgetManager> m_widget_manager;
   std::unique_ptr<Chunk> m_chunk;
   World m_world;
@@ -29,9 +29,12 @@ class App {
   float time_taken_to_render = 0;
 
 public:
-  App();
+  App(int argc, char **argv);
   ~App();
 
   bool Run();
+
+private:
+  void ParseParameters(int argc, char **argv);
 };
 } // namespace craft

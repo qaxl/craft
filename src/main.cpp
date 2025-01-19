@@ -16,7 +16,7 @@ int main(int argc, char **argv) {
   // This looks absolutely terrifying, but gladly I won't have to touch it
   // again.
   try {
-    craft::App app;
+    craft::App app(argc, argv);
 
     if (!app.Run()) {
       std::cout << "Application quit because of an error: " << *craft::RuntimeError::GetErrorString() << std::endl;
