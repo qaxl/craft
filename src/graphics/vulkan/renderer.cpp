@@ -1,7 +1,10 @@
 #include "renderer.hpp"
 
+#include <algorithm>
 #include <array>
+#include <execution>
 #include <iostream>
+#include <thread>
 #include <vector>
 
 #include <SDL3/SDL_vulkan.h>
@@ -22,8 +25,8 @@
 
 namespace craft::vk {
 constexpr DeviceFeatures const kDeviceFeatures = DeviceFeatures{
-    .base_features = {.sampleRateShading = true, .samplerAnisotropy = true},
-    .vk_1_2_features = {.bufferDeviceAddress = true},
+    .base_features = {.sampleRateShading = true},
+    .vk_1_2_features = {.timelineSemaphore = true, .bufferDeviceAddress = true},
     .vk_1_3_features =
         {
             .synchronization2 = true,
@@ -70,17 +73,18 @@ Renderer::Renderer(std::shared_ptr<Window> window, Camera const &camera, World *
   InitPipelines();
   InitDefaultData();
 
-  std::array<Vtx, 4> vertices = {
-      Vtx{.pos = {m_draw_extent.width / 2 - 15, m_draw_extent.height / 2 - 15, 1}, .uv = {0, 0}},
-      Vtx{.pos = {m_draw_extent.width / 2 - 15, m_draw_extent.height / 2 + 15, 1}, .uv = {0, 16.0f / 512.0f}},
-      Vtx{.pos = {m_draw_extent.width / 2 + 15, m_draw_extent.height / 2 + 15, 1},
-          .uv = {16.0f / 512.0f, 16.0f / 512.0f}},
-      Vtx{.pos = {m_draw_extent.width / 2 + 15, m_draw_extent.height / 2 - 15, 1}, .uv = {16.0f / 512.0f, 0}},
-  };
-  std::array<uint32_t, 6> indices = {0, 1, 3, 1, 2, 3};
+  // FIXME: no longer working...
+  // std::array<Vtx, 4> vertices = {
+  //     Vtx{.pos = {m_draw_extent.width / 2 - 15, m_draw_extent.height / 2 - 15, 1}, .uv = {0, 0}},
+  //     Vtx{.pos = {m_draw_extent.width / 2 - 15, m_draw_extent.height / 2 + 15, 1}, .uv = {0, 16.0f / 512.0f}},
+  //     Vtx{.pos = {m_draw_extent.width / 2 + 15, m_draw_extent.height / 2 + 15, 1},
+  //         .uv = {16.0f / 512.0f, 16.0f / 512.0f}},
+  //     Vtx{.pos = {m_draw_extent.width / 2 + 15, m_draw_extent.height / 2 - 15, 1}, .uv = {16.0f / 512.0f, 0}},
+  // };
+  // std::array<uint32_t, 6> indices = {0, 1, 3, 1, 2, 3};
 
-  m_crosshair_mesh = UploadMesh(this, m_device.GetDevice(), *m_allocator, indices, vertices);
-  m_crosshair_texture = std::make_shared<Texture>(*m_allocator, m_device, this, "textures/crosshair.png");
+  // m_crosshair_mesh = UploadMesh(this, m_device.GetDevice(), *m_allocator, indices, vertices);
+  // m_crosshair_texture = std::make_shared<Texture>(*m_allocator, m_device, this, "textures/crosshair.png");
 
   m_texture = std::make_shared<Texture>(*m_allocator, m_device, this, "textures/spritesheet_blocks.png");
   m_imgui = ImGui{m_window, &m_device, &m_swapchain};
@@ -92,7 +96,7 @@ Renderer::~Renderer() {
   m_device.WaitIdle();
 
   for (auto &mesh : m_meshes) {
-    DestroyBuffer(*m_allocator, std::move(mesh.index));
+    // DestroyBuffer(*m_allocator, std::move(mesh.index));
     DestroyBuffer(*m_allocator, std::move(mesh.vertex));
   }
   m_meshes.clear();
@@ -104,9 +108,9 @@ Renderer::~Renderer() {
   m_dallocator.DestroyPool(m_device.GetDevice());
 
   for (auto &frame : m_frames) {
-    vkDestroyFence(m_device.GetDevice(), frame.fe_render, nullptr);
-    vkDestroySemaphore(m_device.GetDevice(), frame.sp_render, nullptr);
-    vkDestroySemaphore(m_device.GetDevice(), frame.sp_swapchain, nullptr);
+    vkDestroySemaphore(m_device.GetDevice(), frame.swapchain_image_ready_sp, nullptr);
+    vkDestroySemaphore(m_device.GetDevice(), frame.render_finished_sp, nullptr);
+    vkDestroyFence(m_device.GetDevice(), frame.finished_fence, nullptr);
 
     vkDestroyCommandPool(m_device.GetDevice(), frame.command_pool, nullptr);
   }
@@ -114,12 +118,13 @@ Renderer::~Renderer() {
 
 void Renderer::Draw() {
   auto &frame = GetCurrentFrame();
-  VK_CHECK(vkWaitForFences(m_device.GetDevice(), 1, &frame.fe_render, true, 1'000'000'000));
-  VK_CHECK(vkResetFences(m_device.GetDevice(), 1, &frame.fe_render));
+
+  VK_CHECK(vkWaitForFences(m_device.GetDevice(), 1, &frame.finished_fence, VK_TRUE, 1000'000'000));
+  VK_CHECK(vkResetFences(m_device.GetDevice(), 1, &frame.finished_fence));
 
   bool should_resize = false;
 
-  AcquiredImage res = m_swapchain.AcquireNextImage(frame.sp_swapchain, 1'000'000'000);
+  AcquiredImage res = m_swapchain.AcquireNextImage(frame.swapchain_image_ready_sp, 1'000'000'000);
   if (res.should_resize) {
     if (res.image && res.view) {
       should_resize = true;
@@ -168,20 +173,21 @@ void Renderer::Draw() {
   VK_CHECK(vkEndCommandBuffer(cmd));
 
   VkCommandBufferSubmitInfo cmd_info = CommandBufferSubmitInfo(cmd);
-  VkSemaphoreSubmitInfo wait_info =
-      SemaphoreSubmitInfo(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, frame.sp_swapchain);
-  VkSemaphoreSubmitInfo signal_info = SemaphoreSubmitInfo(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, frame.sp_render);
+  VkSemaphoreSubmitInfo wait_info2 =
+      SemaphoreSubmitInfo(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, frame.swapchain_image_ready_sp);
+  VkSemaphoreSubmitInfo signal_info =
+      SemaphoreSubmitInfo(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, frame.render_finished_sp);
 
-  VkSubmitInfo2 submit = SubmitInfo(&cmd_info, &signal_info, &wait_info);
+  VkSubmitInfo2 submit = SubmitInfo(&cmd_info, &signal_info, &wait_info2);
 
-  VK_CHECK(vkQueueSubmit2(m_device.GetGraphicsQueue(), 1, &submit, frame.fe_render));
+  VK_CHECK(vkQueueSubmit2(m_device.GetGraphicsQueue(), 1, &submit, frame.finished_fence));
 
   VkPresentInfoKHR present_info{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
   present_info.swapchainCount = 1;
   present_info.pSwapchains = m_swapchain.GetHandlePtr();
 
   present_info.waitSemaphoreCount = 1;
-  present_info.pWaitSemaphores = &frame.sp_render;
+  present_info.pWaitSemaphores = &frame.render_finished_sp;
 
   uint32_t current_index = m_swapchain.GetCurrentImageIndex();
   present_info.pImageIndices = &current_index;
@@ -216,11 +222,16 @@ void Renderer::InitSyncStructures() {
   VkFenceCreateInfo fence_info{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, nullptr, VK_FENCE_CREATE_SIGNALED_BIT};
   VkSemaphoreCreateInfo semaphore_info{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
 
-  for (auto &frame : m_frames) {
-    VK_CHECK(vkCreateFence(m_device.GetDevice(), &fence_info, nullptr, &frame.fe_render));
+  // We can't use timeline semaphores because WSI doesn't support them
+  // VkSemaphoreTypeCreateInfo timeline_info{VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};
+  // timeline_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
 
-    VK_CHECK(vkCreateSemaphore(m_device.GetDevice(), &semaphore_info, nullptr, &frame.sp_swapchain));
-    VK_CHECK(vkCreateSemaphore(m_device.GetDevice(), &semaphore_info, nullptr, &frame.sp_render));
+  for (auto &frame : m_frames) {
+    semaphore_info.pNext = nullptr;
+    VK_CHECK(vkCreateSemaphore(m_device.GetDevice(), &semaphore_info, nullptr, &frame.swapchain_image_ready_sp));
+    VK_CHECK(vkCreateSemaphore(m_device.GetDevice(), &semaphore_info, nullptr, &frame.render_finished_sp));
+
+    VK_CHECK(vkCreateFence(m_device.GetDevice(), &fence_info, nullptr, &frame.finished_fence));
   }
 }
 
@@ -310,6 +321,13 @@ void Renderer::DrawGeometry(VkCommandBuffer cmd, AllocatedImage &render_target, 
   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_textured_mesh_pipeline_layout, 0, 1,
                           &m_textured_mesh_descriptor_set, 0, nullptr);
 
+  glm::mat4 view_proj =
+      glm::perspective(m_camera.GetFov(),
+                       static_cast<float>(m_draw_extent.width) / static_cast<float>(m_draw_extent.height), 0.1f,
+                       m_camera.GetFarPlane()) *
+      glm::mat4(1.0f, 0.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f) *
+      m_camera.ViewMatrix();
+
   {
     size_t index = 0;
     for (auto &mesh : m_meshes) {
@@ -317,36 +335,33 @@ void Renderer::DrawGeometry(VkCommandBuffer cmd, AllocatedImage &render_target, 
       push_constants.vertex_buffer = mesh.vertex_addr;
       // Position meshes in a grid with proper spacing (16 units between chunks)
       push_constants.projection =
-          glm::perspectiveLH_ZO(m_camera.GetFov(),
-                                static_cast<float>(m_draw_extent.width) / static_cast<float>(m_draw_extent.height),
-                                0.1f, m_camera.GetFarPlane()) *
-          m_camera.ViewMatrix() *
-          glm::translate(glm::mat4(1.0f), glm::vec3(-static_cast<float>(mesh.chunk->x) * kMaxChunkWidth,
-                                                    -static_cast<float>(mesh.chunk->y) * kMaxChunkHeight,
-                                                    -static_cast<float>(mesh.chunk->z) * kMaxChunkDepth));
+          view_proj *
+          glm::translate(glm::mat4(1.0f), glm::vec3(mesh.chunk->x * kMaxChunkWidth, mesh.chunk->y * kMaxChunkHeight,
+                                                    mesh.chunk->z * kMaxChunkDepth));
 
       vkCmdPushConstants(cmd, m_textured_mesh_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(DrawPushConstants),
                          &push_constants);
 
-      vkCmdBindIndexBuffer(cmd, mesh.index.buffer, 0, VK_INDEX_TYPE_UINT32);
-      vkCmdDrawIndexed(cmd, mesh.index.info.size / 4, 1, 0, 0, 0);
+      vkCmdBindIndexBuffer(cmd, mesh.vertex.buffer, mesh.vertex_size, VK_INDEX_TYPE_UINT32);
+      vkCmdDrawIndexed(cmd, mesh.index_size / 4, 1, 0, 0, 0);
 
       index += 1;
     }
   }
   // FIXME: This is a temporary hack to draw the crosshair
-  {
-    DrawPushConstants push_constants;
-    push_constants.vertex_buffer = m_crosshair_mesh.vertex_addr;
-    push_constants.projection = glm::orthoLH_ZO(0.0f, static_cast<float>(m_draw_extent.width),
-                                                static_cast<float>(m_draw_extent.height), 0.0f, 0.1f, 10.0f);
+  // {
+  //   DrawPushConstants push_constants;
+  //   push_constants.vertex_buffer = m_crosshair_mesh.vertex_addr;
+  //   push_constants.projection = glm::orthoLH_ZO(0.0f, static_cast<float>(m_draw_extent.width),
+  //                                               static_cast<float>(m_draw_extent.height), 0.0f, 0.1f, 10.0f);
 
-    vkCmdPushConstants(cmd, m_textured_mesh_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(DrawPushConstants),
-                       &push_constants);
+  //   vkCmdPushConstants(cmd, m_textured_mesh_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
+  //   sizeof(DrawPushConstants),
+  //                      &push_constants);
 
-    vkCmdBindIndexBuffer(cmd, m_crosshair_mesh.index.buffer, 0, VK_INDEX_TYPE_UINT32);
-    vkCmdDrawIndexed(cmd, m_crosshair_mesh.index.info.size / 4, 1, 0, 0, 0);
-  }
+  //   vkCmdBindIndexBuffer(cmd, m_crosshair_mesh.index.buffer, 0, VK_INDEX_TYPE_UINT32);
+  //   vkCmdDrawIndexed(cmd, m_crosshair_mesh.index.info.size / 4, 1, 0, 0, 0);
+  // }
 
   vkCmdEndRendering(cmd);
 }
@@ -379,7 +394,7 @@ void Renderer::InitTexturedMeshPipeline() {
   builder.SetShaders(*vertex, *fragment);
   builder.SetInputTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
   builder.SetPolygonMode(VK_POLYGON_MODE_FILL);
-  builder.SetCullMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
+  builder.SetCullMode(VK_CULL_MODE_FRONT_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
   builder.DisableMSAA();
   builder.EnableAlphaBlending();
   builder.EnableDepthTest();
@@ -399,7 +414,7 @@ void Renderer::InitTexturedMeshPipeline() {
 void Renderer::InitDefaultData() {
   m_device.WaitIdle();
   for (auto &mesh : m_meshes) {
-    DestroyBuffer(*m_allocator, std::move(mesh.index));
+    // DestroyBuffer(*m_allocator, std::move(mesh.index));
     DestroyBuffer(*m_allocator, std::move(mesh.vertex));
   }
   m_meshes.clear();
@@ -435,16 +450,17 @@ void Renderer::ResizeSwapchain() {
   m_draw_extent = {width, height};
 
   // FIXME: temporary
-  std::array<Vtx, 4> vertices = {
-      Vtx{.pos = {m_draw_extent.width / 2 - 10, m_draw_extent.height / 2 - 10, 1}, .uv = {0, 0}},
-      Vtx{.pos = {m_draw_extent.width / 2 - 10, m_draw_extent.height / 2 + 10, 1}, .uv = {0, 16.0f / 512.0f}},
-      Vtx{.pos = {m_draw_extent.width / 2 + 10, m_draw_extent.height / 2 + 10, 1},
-          .uv = {16.0f / 512.0f, 16.0f / 512.0f}},
-      Vtx{.pos = {m_draw_extent.width / 2 + 10, m_draw_extent.height / 2 - 10, 1}, .uv = {16.0f / 512.0f, 0}},
-  };
-  std::array<uint32_t, 6> indices = {0, 1, 3, 1, 2, 3};
+  // FIXME: last update broke this entirely, since crosshair isn't part of a chunk, and it is absolutely necessary now
+  // to render with the same pipeline. std::array<Vertex, 4> vertices = {
+  //     Vtx{.pos = {m_draw_extent.width / 2 - 10, m_draw_extent.height / 2 - 10, 1}, .uv = {0, 0}},
+  //     Vtx{.pos = {m_draw_extent.width / 2 - 10, m_draw_extent.height / 2 + 10, 1}, .uv = {0, 16.0f / 512.0f}},
+  //     Vtx{.pos = {m_draw_extent.width / 2 + 10, m_draw_extent.height / 2 + 10, 1},
+  //         .uv = {16.0f / 512.0f, 16.0f / 512.0f}},
+  //     Vtx{.pos = {m_draw_extent.width / 2 + 10, m_draw_extent.height / 2 - 10, 1}, .uv = {16.0f / 512.0f, 0}},
+  // };
+  // std::array<uint32_t, 6> indices = {0, 1, 3, 1, 2, 3};
 
-  m_crosshair_mesh = UploadMesh(this, m_device.GetDevice(), *m_allocator, indices, vertices);
+  // m_crosshair_mesh = UploadMesh(this, m_device.GetDevice(), *m_allocator, indices, vertices);
   // END OF FIXME
 
   for (auto &frame : m_frames) {

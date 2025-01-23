@@ -133,6 +133,9 @@ bool App::Run() {
 
   bool camera_enabled = true;
 
+  uint64_t frame_60_average_render_time;
+  int frames = 0;
+
   while (m_window->IsOpen()) {
     if (RuntimeError::HasAnError()) {
       // The main function
@@ -156,7 +159,14 @@ bool App::Run() {
 
     uint64_t end = SDL_GetTicksNS();
     uint64_t time_taken = end - start;
-    time_taken_to_render = static_cast<float>(time_taken) / 1000.0f / 1000.0f;
+    frame_60_average_render_time += time_taken;
+    frames += 1;
+    if (frames == 59) {
+      frames = 0;
+      uint64_t time = frame_60_average_render_time / 60ULL;
+      frame_60_average_render_time = 0;
+      time_taken_to_render = time / 1000.0f / 1000.0f;
+    }
 
     m_window->PollEvents();
 
@@ -206,108 +216,6 @@ bool App::Run() {
       }
 
       if (m_window->IsButtonPressed(1)) {
-
-        glm::vec3 closest_block_position;
-        float closest_t = std::numeric_limits<float>::max();
-        bool found_intersection = false;
-
-        for (int z = 0; z < kMaxChunkDepth; ++z) {
-          for (int x = 0; x < kMaxChunkWidth; ++x) {
-            for (int y = 0; y < kMaxChunkHeight; ++y) {
-              if (m_chunk->blocks[z][x][y].block_type == BlockType::Air) {
-                continue;
-              }
-
-              // Calculate block position and size
-              glm::vec3 block_position = glm::vec3(-x, -y, -z);
-              glm::vec3 block_min = block_position;
-              glm::vec3 block_max = block_position + glm::vec3(1.0f); // Assuming blocks are 1x1x1 in size
-
-              AABB block_aabb{block_min, block_max};
-
-              float t;
-              // Check for intersection with the block's AABB
-              if (CastRayFromCamera(m_camera, block_aabb, t)) {
-                if (t < closest_t) {
-                  closest_t = t;
-                  closest_block_position = block_position;
-                  found_intersection = true;
-                }
-              }
-            }
-          }
-        }
-
-        if (found_intersection) {
-          int bx = static_cast<int>(-closest_block_position.x);
-          int by = static_cast<int>(-closest_block_position.y);
-          int bz = static_cast<int>(-closest_block_position.z);
-
-          if (bx >= 0 && bx < kMaxChunkWidth && by >= 0 && by < kMaxChunkHeight && bz >= 0 && bz < kMaxChunkDepth) {
-            std::cout << "Block position: " << bx << ", " << by << ", " << bz << std::endl;
-            if (m_replace) {
-              // Replace the block
-              m_chunk->blocks[bz][bx][by].block_type = m_current_block_type;
-            } else {
-              // Add a block in front
-              glm::vec3 new_block_pos = closest_block_position - glm::normalize(m_camera.GetForward());
-
-              std::cout << "Closest block position: " << closest_block_position.x << ", " << closest_block_position.y
-                        << ", " << closest_block_position.z << std::endl;
-              std::cout << "Placing a block at: " << new_block_pos.x << ", " << new_block_pos.y << ", "
-                        << new_block_pos.z << std::endl;
-
-              int nx = static_cast<int>(-new_block_pos.x);
-              int ny = static_cast<int>(-new_block_pos.y);
-              int nz = static_cast<int>(-new_block_pos.z);
-
-              if (nx >= 0 && nx < kMaxChunkWidth && ny >= 0 && ny < kMaxChunkHeight && nz >= 0 && nz < kMaxChunkDepth) {
-                m_chunk->blocks[nz][nx][ny].block_type = m_current_block_type;
-              }
-            }
-
-            // Reinitialize data if needed
-            m_renderer->InitDefaultData();
-          } else {
-            std::cerr << "Block position out of bounds: " << closest_block_position.x << ", "
-                      << closest_block_position.y << ", " << closest_block_position.z << std::endl;
-          }
-        }
-        // if (found_intersection) {
-        //   if (m_replace) {
-        //     m_chunk
-        //         ->blocks[static_cast<int>(-closest_block_position.z)][static_cast<int>(-closest_block_position.x)]
-        //                 [static_cast<int>(-closest_block_position.y)]
-        //         .block_type = m_current_block_type;
-        //   } else {
-        //     closest_block_position += glm::normalize(m_camera.GetForward());
-        //     closest_block_position = glm::floor(closest_block_position + 0.5f); // Snap to nearest integer position
-
-        //     int bx = static_cast<int>(-closest_block_position.x);
-        //     int by = static_cast<int>(-closest_block_position.y);
-        //     int bz = static_cast<int>(-closest_block_position.z);
-
-        //     if (bx >= 0 && bx < kMaxChunkWidth && by >= 0 && by < kMaxChunkHeight && bz >= 0 && bz < kMaxChunkDepth)
-        //     {
-        //       m_chunk->blocks[bz][bx][by].block_type = m_current_block_type;
-        //     } else {
-        //       std::cerr << "Position out of bounds: " << closest_block_position.x << ", " << closest_block_position.y
-        //                 << ", " << closest_block_position.z << std::endl;
-        //     }
-
-        //     m_chunk
-        //         ->blocks[static_cast<int>(-closest_block_position.z)][static_cast<int>(-closest_block_position.x)]
-        //                 [static_cast<int>(-closest_block_position.y)]
-        //         .block_type = m_current_block_type;
-        //   }
-        //   // Reinitialize data if needed
-        //   m_renderer->InitDefaultData();
-
-        //   // // Break out of nested loops
-        //   // z = kMaxChunkDepth; // Skip remaining checks
-        //   // x = kMaxChunkWidth;
-        //   // y = kMaxChunkHeight;
-        // }
       }
 
       auto [x, y] = m_window->GetRelativeMouseMotion();

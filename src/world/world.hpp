@@ -13,10 +13,14 @@ public:
   World(FastNoiseLite *noise) : m_noise{noise} {}
 
   void Generate() {
-    for (int x = -64; x < 64; ++x) {
-      for (int z = -64; z < 64; ++z) {
+    m_noise->SetFractalOctaves(5);
+    m_noise->SetFractalType(FastNoiseLite::FractalType_FBm);
+    m_noise->SetSeed(rand());
+    for (int x = 0; x < 16; ++x) {
+      for (int z = 0; z < 16; ++z) {
         auto &chunk = m_chunks.emplace_back();
-        GenerateChunk(false, 12.0f, *m_noise, chunk, 1.0f, x * kMaxChunkWidth, z * kMaxChunkDepth);
+
+        GenerateChunk(false, 16.0f, *m_noise, chunk, 1.0f, x * kMaxChunkWidth, z * kMaxChunkDepth);
         chunk.x = x;
         chunk.z = z;
         chunk.y = 0;

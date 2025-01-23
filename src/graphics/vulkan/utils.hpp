@@ -213,11 +213,12 @@ AttachmentInfo(VkImageView view, VkClearValue *clear,
   return color_attachment;
 }
 
-static constexpr VkSemaphoreSubmitInfo SemaphoreSubmitInfo(VkPipelineStageFlags2 stage_mask, VkSemaphore semaphore) {
+static constexpr VkSemaphoreSubmitInfo SemaphoreSubmitInfo(VkPipelineStageFlags2 stage_mask, VkSemaphore semaphore,
+                                                           uint64_t value = 1) {
   return VkSemaphoreSubmitInfo{
       .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
       .semaphore = semaphore,
-      .value = 1,
+      .value = value,
       .stageMask = stage_mask,
   };
 }

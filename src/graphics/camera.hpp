@@ -31,7 +31,7 @@ public:
   float GetFov() const { return glm::radians(m_fov); }
 
   // TODO: dynamic near/far plane
-  float GetFarPlane() const { return 5000.0f; }
+  float GetFarPlane() const { return 7600.0f; }
   glm::vec3 GetForward() const { return m_front; }
   glm::vec3 GetPosition() const { return m_position; }
 
@@ -57,11 +57,11 @@ public:
       break;
 
     case CameraMovement::Up:
-      m_position.y -= velocity;
+      m_position.y += velocity;
       break;
 
     case CameraMovement::Down:
-      m_position.y += velocity;
+      m_position.y -= velocity;
       break;
     }
   }
@@ -71,7 +71,7 @@ public:
     y *= m_mouse_sensitivity;
 
     m_yaw += x;
-    m_pitch -= y;
+    m_pitch += y;
 
     if (constrain) {
       m_pitch = std::clamp(m_pitch, -89.0f, 89.0f);

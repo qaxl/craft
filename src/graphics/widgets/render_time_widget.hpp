@@ -20,7 +20,7 @@ public:
     float delta_s = delta / 1e9;
     float fps = 1.f / delta_s;
 
-    ImGui::Text("FPS: %f", fps);
+    ImGui::Text("FPS: %f", 1000.0f / *render_time);
     ImGui::Text("Frame Time: %fms", *render_time);
   }
 

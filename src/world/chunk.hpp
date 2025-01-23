@@ -7,6 +7,9 @@ enum class BlockType : uint8_t {
   Air,
   Dirt,
   Lava,
+  Water,
+  Stone,
+  Wood,
   Count,
 };
 

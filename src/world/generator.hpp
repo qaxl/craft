@@ -20,10 +20,12 @@ inline void GenerateChunk(bool generate_only_one_block, float max_generated_heig
 
       uint32_t y_ = (2 + static_cast<uint32_t>(height)) % kMaxChunkHeight;
       for (uint32_t y = y_; y > 0; --y) {
-        if (y > 3) {
+        if (y > 5) {
           out.blocks[z][x][y].block_type = BlockType::Dirt;
+        } else if ((y > 3 && y <= 5)) {
+          out.blocks[z][x][y].block_type = BlockType::Water;
         } else {
-          out.blocks[z][x][y].block_type = BlockType::Lava;
+          out.blocks[z][x][y].block_type = BlockType::Stone;
         }
       }
     }

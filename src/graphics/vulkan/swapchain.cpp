@@ -9,7 +9,7 @@
 namespace craft::vk {
 Swapchain::Swapchain(Device *device, VkSurfaceKHR surface, VkExtent2D extent)
     : m_device{device}, m_surface{surface}, m_extent{extent} {
-  m_present_mode = m_device->GetOptimalPresentMode(m_surface);
+  m_present_mode = m_device->GetOptimalPresentMode(m_surface, false);
   m_surface_format = m_device->GetOptimalSurfaceFormat(m_surface);
 
   VkSurfaceCapabilitiesKHR caps;

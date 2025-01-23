@@ -35,9 +35,9 @@ struct FrameData {
   VkCommandPool command_pool;
   VkCommandBuffer command_buffer;
 
-  VkSemaphore sp_swapchain;
-  VkSemaphore sp_render;
-  VkFence fe_render;
+  VkSemaphore swapchain_image_ready_sp;
+  VkSemaphore render_finished_sp;
+  VkFence finished_fence;
 
   AllocatedImage render_target;
   AllocatedImage depth_buffer;

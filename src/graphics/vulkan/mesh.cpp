@@ -6,23 +6,20 @@
 
 namespace craft::vk {
 MeshBuffers UploadMesh(Renderer *renderer, VkDevice device, VmaAllocator allocator, std::span<uint32_t> indices,
-                       std::span<Vtx> vertices) {
+                       std::span<Vertex> vertices) {
   size_t vertex_size = vertices.size_bytes();
   size_t index_size = indices.size_bytes();
 
   MeshBuffers mesh;
-  mesh.vertex = AllocateBuffer(allocator, vertex_size,
+  mesh.vertex = AllocateBuffer(allocator, vertex_size + index_size,
                                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-                                   VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                                   VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
                                VMA_MEMORY_USAGE_GPU_ONLY);
 
   VkBufferDeviceAddressInfo addr_info{VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO};
   addr_info.buffer = mesh.vertex.buffer;
 
   mesh.vertex_addr = vkGetBufferDeviceAddress(device, &addr_info);
-  mesh.index =
-      AllocateBuffer(allocator, index_size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                     VMA_MEMORY_USAGE_GPU_ONLY);
 
   AllocatedBuffer staging =
       AllocateBuffer(allocator, vertex_size + index_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
@@ -38,84 +35,34 @@ MeshBuffers UploadMesh(Renderer *renderer, VkDevice device, VmaAllocator allocat
   // TODO: fucking optimize
   renderer->SubmitNow([&](VkCommandBuffer cmd) {
     VkBufferCopy vertex_copy{};
-    vertex_copy.size = vertex_size;
+    vertex_copy.size = vertex_size + index_size;
 
     vkCmdCopyBuffer(cmd, staging.buffer, mesh.vertex.buffer, 1, &vertex_copy);
 
-    vertex_copy.srcOffset = vertex_size;
-    vertex_copy.size = index_size;
+    // vertex_copy.srcOffset = vertex_size;
+    // vertex_copy.size = index_size;
 
-    vkCmdCopyBuffer(cmd, staging.buffer, mesh.index.buffer, 1, &vertex_copy);
+    // vkCmdCopyBuffer(cmd, staging.buffer, mesh.index.buffer, 1, &vertex_copy);
   });
 
   DestroyBuffer(allocator, std::move(staging));
+  mesh.vertex_size = vertex_size;
+  mesh.index_size = index_size;
   return mesh;
 }
 
 enum class MeshFace { Front, Back, Left, Right, Top, Bottom, Count };
 
-static void AddFace(MeshFace face, glm::vec3 pos, Rect uv, std::vector<Vtx> &vertices, std::vector<uint32_t> &indices) {
-  uint32_t start_index = vertices.size();
-
-  switch (face) {
-  case MeshFace::Left:
-    vertices.emplace_back(Vtx{.pos = pos + glm::vec3(0, 0, 0), .uv = {uv.x, uv.y}});
-    vertices.emplace_back(Vtx{.pos = pos + glm::vec3(0, 1, 0), .uv = {uv.x, uv.y + uv.h}});
-    vertices.emplace_back(Vtx{.pos = pos + glm::vec3(1, 1, 0), .uv = {uv.x + uv.w, uv.y + uv.h}});
-    vertices.emplace_back(Vtx{.pos = pos + glm::vec3(1, 0, 0), .uv = {uv.x + uv.w, uv.y}});
-    break;
-  case MeshFace::Right:
-    vertices.emplace_back(Vtx{.pos = pos + glm::vec3(0, 0, 1), .uv = {uv.x, uv.y}});
-    vertices.emplace_back(Vtx{.pos = pos + glm::vec3(1, 0, 1), .uv = {uv.x + uv.w, uv.y}});
-    vertices.emplace_back(Vtx{.pos = pos + glm::vec3(1, 1, 1), .uv = {uv.x + uv.w, uv.y + uv.h}});
-    vertices.emplace_back(Vtx{.pos = pos + glm::vec3(0, 1, 1), .uv = {uv.x, uv.y + uv.h}});
-    break;
-  case MeshFace::Front:
-    vertices.emplace_back(Vtx{.pos = pos + glm::vec3(0, 0, 0), .uv = {uv.x, uv.y}});
-    vertices.emplace_back(Vtx{.pos = pos + glm::vec3(0, 0, 1), .uv = {uv.x + uv.w, uv.y}});
-    vertices.emplace_back(Vtx{.pos = pos + glm::vec3(0, 1, 1), .uv = {uv.x + uv.w, uv.y + uv.h}});
-    vertices.emplace_back(Vtx{.pos = pos + glm::vec3(0, 1, 0), .uv = {uv.x, uv.y + uv.h}});
-    break;
-  case MeshFace::Back:
-    vertices.emplace_back(Vtx{.pos = pos + glm::vec3(1, 0, 0), .uv = {uv.x, uv.y}});
-    vertices.emplace_back(Vtx{.pos = pos + glm::vec3(1, 1, 0), .uv = {uv.x, uv.y + uv.h}});
-    vertices.emplace_back(Vtx{.pos = pos + glm::vec3(1, 1, 1), .uv = {uv.x + uv.w, uv.y + uv.h}});
-    vertices.emplace_back(Vtx{.pos = pos + glm::vec3(1, 0, 1), .uv = {uv.x + uv.w, uv.y}});
-    break;
-  case MeshFace::Bottom:
-    vertices.emplace_back(Vtx{.pos = pos + glm::vec3(0, 1, 0), .uv = {uv.x, uv.y}});
-    vertices.emplace_back(Vtx{.pos = pos + glm::vec3(0, 1, 1), .uv = {uv.x, uv.y + uv.h}});
-    vertices.emplace_back(Vtx{.pos = pos + glm::vec3(1, 1, 1), .uv = {uv.x + uv.w, uv.y + uv.h}});
-    vertices.emplace_back(Vtx{.pos = pos + glm::vec3(1, 1, 0), .uv = {uv.x + uv.w, uv.y}});
-    break;
-  case MeshFace::Top:
-    vertices.emplace_back(Vtx{.pos = pos + glm::vec3(0, 0, 0), .uv = {uv.x, uv.y}});
-    vertices.emplace_back(Vtx{.pos = pos + glm::vec3(1, 0, 0), .uv = {uv.x + uv.w, uv.y}});
-    vertices.emplace_back(Vtx{.pos = pos + glm::vec3(1, 0, 1), .uv = {uv.x + uv.w, uv.y + uv.h}});
-    vertices.emplace_back(Vtx{.pos = pos + glm::vec3(0, 0, 1), .uv = {uv.x, uv.y + uv.h}});
-    break;
-  default:
-    return;
-  }
-
-  indices.push_back(start_index + 0);
-  indices.push_back(start_index + 1);
-  indices.push_back(start_index + 3);
-  indices.push_back(start_index + 1);
-  indices.push_back(start_index + 2);
-  indices.push_back(start_index + 3);
-}
-
 static bool ShouldRender(Chunk *chunk, MeshFace face, int z, int x, int y) {
   switch (face) {
   case MeshFace::Front:
-    return x == (kMaxChunkWidth - 1) || chunk->blocks[z][x + 1][y].block_type == BlockType::Air;
-  case MeshFace::Back:
-    return x == 0 || chunk->blocks[z][x - 1][y].block_type == BlockType::Air;
-  case MeshFace::Left:
     return z == (kMaxChunkDepth - 1) || chunk->blocks[z + 1][x][y].block_type == BlockType::Air;
-  case MeshFace::Right:
+  case MeshFace::Back:
     return z == 0 || chunk->blocks[z - 1][x][y].block_type == BlockType::Air;
+  case MeshFace::Left:
+    return x == 0 || chunk->blocks[z][x - 1][y].block_type == BlockType::Air;
+  case MeshFace::Right:
+    return x == (kMaxChunkWidth - 1) || chunk->blocks[z][x + 1][y].block_type == BlockType::Air;
   case MeshFace::Top:
     return y == (kMaxChunkHeight - 1) || chunk->blocks[z][x][y + 1].block_type == BlockType::Air;
   case MeshFace::Bottom:
@@ -149,31 +96,56 @@ ChunkMesh ChunkMesh::GenerateChunkMeshFromChunk(Chunk *chunk) {
         if (block.block_type == BlockType::Air)
           continue;
 
-        glm::vec3 block_pos(-x, -y, -z);
-        glm::vec3 block_size(1, 1, 1);
-
         BlockType current_type = block.block_type;
         for (int face = 0; face < 6; face++) {
           MeshFace current_face = static_cast<MeshFace>(face);
           if (!ShouldRender(chunk, current_face, z, x, y))
             continue;
 
-          if (current_type == BlockType::Dirt) {
-            if (chunk->blocks[z][x][y + 1].block_type != BlockType::Air) {
-              current_type = BlockType::Air;
+          uint8_t tex_index = 1;
+          switch (current_type) {
+          case BlockType::Dirt:
+            if (current_face == MeshFace::Top) {
+              tex_index = 18;
+            } else if (current_face == MeshFace::Bottom) {
+              tex_index = 16;
+            } else {
+              tex_index = 17;
             }
+            break;
+          case BlockType::Lava:
+            tex_index = 2;
+            break;
+          case BlockType::Water:
+            tex_index = 3;
+            break;
+
+          case BlockType::Stone:
+            tex_index = 1;
+            break;
+
+          case BlockType::Wood:
+            tex_index = 0;
+            break;
+
+          case BlockType::Air:
+          case BlockType::Count:
+            break;
           }
 
-          Rect tex_coords = TEXTURE_LOOKUP[static_cast<int>(current_type)][static_cast<int>(current_face)];
-          float offsetX = 2.0f / 32.0f / 512.0f;
-          float offsetY = 2.0f / 32.0f / 512.0f;
+          uint32_t base_index = mesh.vertices.size();
 
-          tex_coords.x += offsetX;
-          tex_coords.y += offsetY;
-          tex_coords.w -= 2.0f * offsetX;
-          tex_coords.h -= 2.0f * offsetY;
+          mesh.vertices.push_back(Vertex(x, y, z, face, 0, tex_index, 0));
+          mesh.vertices.push_back(Vertex(x, y, z, face, 1, tex_index, 0));
+          mesh.vertices.push_back(Vertex(x, y, z, face, 2, tex_index, 0));
+          mesh.vertices.push_back(Vertex(x, y, z, face, 3, tex_index, 0));
 
-          AddFace(current_face, block_pos, tex_coords, mesh.vertices, mesh.indices);
+          mesh.indices.push_back(base_index);
+          mesh.indices.push_back(base_index + 1);
+          mesh.indices.push_back(base_index + 2);
+          mesh.indices.push_back(base_index);
+          mesh.indices.push_back(base_index + 2);
+          mesh.indices.push_back(base_index + 3);
         }
       }
     }
