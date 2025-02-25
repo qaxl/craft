@@ -14,13 +14,17 @@ struct AllocatedBuffer {
 };
 
 static AllocatedBuffer AllocateBuffer(VmaAllocator allocator, size_t size, VkBufferUsageFlags usage,
-                                      VmaMemoryUsage memory_usage) {
+                                      VmaMemoryUsage memory_usage = VMA_MEMORY_USAGE_UNKNOWN /* backwards compat */,
+                                      VkMemoryPropertyFlags required_flags = 0,
+                                      VkMemoryPropertyFlags preferred_flags = 0) {
   VkBufferCreateInfo buffer_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
   buffer_info.size = size;
   buffer_info.usage = usage;
 
   VmaAllocationCreateInfo alloc_info{};
   alloc_info.usage = memory_usage;
+  alloc_info.requiredFlags = required_flags;
+  alloc_info.preferredFlags = preferred_flags;
   alloc_info.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
 
   AllocatedBuffer buffer;

@@ -3,7 +3,6 @@ add_executable(craft
   app.cpp
   
   graphics/vulkan/device.cpp
-  graphics/vulkan/mesh.cpp
   graphics/vulkan/imgui.cpp
   graphics/vulkan/instance.cpp
   graphics/vulkan/renderer.cpp
@@ -14,7 +13,12 @@ add_executable(craft
   platform/tcp_socket.cpp
   platform/window.cpp
   
-  util/error.cpp)
+  util/error.cpp
+  util/io.cpp
+  
+  world/player/player.cpp
+  world/mesh.cpp
+  world/world.cpp)
 
 target_include_directories(craft PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(craft PRIVATE SDL3::SDL3 GPUOpen::VulkanMemoryAllocator volk imgui ws2_32 glm single_header)
@@ -22,3 +26,6 @@ target_link_libraries(craft PRIVATE SDL3::SDL3 GPUOpen::VulkanMemoryAllocator vo
 if (BUILD_WITH_STEAMSDK)
   target_link_libraries(craft PRIVATE steamworks)
 endif()
+
+add_definitions(-DGLM_FORCE_ROW_MAJOR)
+add_definitions(-DGLM_FORCE_DEPTH_ZERO_TO_ONE)

@@ -45,20 +45,32 @@ void Window::PollEvents() {
         m_window_is_open = false;
         break;
 
+      case SDL_EVENT_WINDOW_FOCUS_LOST:
       case SDL_EVENT_WINDOW_MINIMIZED:
         spin = true;
         break;
 
+      case SDL_EVENT_WINDOW_FOCUS_GAINED:
       case SDL_EVENT_WINDOW_RESTORED:
         spin = false;
         break;
 
       case SDL_EVENT_KEY_DOWN:
         m_key_down.set(event.key.scancode, true);
+
+        // TODO: support repeat for writing?
+        if (!event.key.repeat) {
+          for (auto &cb : m_key_callbacks) {
+            cb(static_cast<KeyboardKey>(event.key.scancode), true);
+          }
+        }
         break;
 
       case SDL_EVENT_KEY_UP:
         m_key_down.reset(event.key.scancode);
+        for (auto &cb : m_key_callbacks) {
+          cb(static_cast<KeyboardKey>(event.key.scancode), false);
+        }
         break;
 
       case SDL_EVENT_MOUSE_MOTION:

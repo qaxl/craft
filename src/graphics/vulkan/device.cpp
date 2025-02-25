@@ -191,6 +191,12 @@ void Device::CreateDevice(SuitableDevice *device) {
   device->features.vk_1_2_features.pNext = &device->features.vk_1_3_features;
   device->features.vk_1_3_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
 
+  // TODO: make non-mandatory
+  VkPhysicalDeviceMeshShaderFeaturesEXT mesh_shaders{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT};
+  mesh_shaders.meshShader = VK_TRUE;
+  mesh_shaders.taskShader = VK_TRUE;
+  device->features.vk_1_3_features.pNext = &mesh_shaders;
+
   uint32_t queue_create_info_count = 1;
   std::array<VkDeviceQueueCreateInfo, QueueFamilyIndices::kMaxQueues> queue_info{};
 

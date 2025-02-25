@@ -7,8 +7,11 @@
 #include <thread>
 #include <vector>
 
+#include "math/glm.hpp"
+
 #include <SDL3/SDL_vulkan.h>
 #include <glm/ext/matrix_clip_space.hpp>
+#include <glm/gtx/matrix_major_storage.hpp>
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_vulkan.h>
@@ -17,11 +20,14 @@
 #include "device.hpp"
 #include "mesh.hpp"
 #include "pipeline.hpp"
+#include "platform/thread_pool.hpp"
 #include "swapchain.hpp"
 #include "texture.hpp"
 #include "util/error.hpp"
 #include "utils.hpp"
+#include "vulkan/vulkan_core.h"
 #include "world/chunk.hpp"
+#include "world/mesh.hpp"
 
 namespace craft::vk {
 constexpr DeviceFeatures const kDeviceFeatures = DeviceFeatures{
@@ -52,7 +58,9 @@ static VmaAllocator CreateAllocator(Device *device) {
 
 Renderer::Renderer(std::shared_ptr<Window> window, Camera const &camera, World *world)
     : m_window{window}, m_camera{camera}, m_world{world}, m_instance{},
-      m_device{m_instance.GetInstance(), {DeviceExtension{VK_KHR_SWAPCHAIN_EXTENSION_NAME}}, &kDeviceFeatures},
+      m_device{m_instance.GetInstance(),
+               {DeviceExtension{VK_KHR_SWAPCHAIN_EXTENSION_NAME}, DeviceExtension{VK_EXT_MESH_SHADER_EXTENSION_NAME}},
+               &kDeviceFeatures},
       m_surface{m_window->CreateSurface(m_instance.GetInstance())}, m_draw_extent{m_window->GetExtent()},
       m_swapchain{&m_device, m_surface, m_draw_extent},
       m_allocator{CreateAllocator(&m_device), [](VmaAllocator a) { vmaDestroyAllocator(a); }} {
@@ -235,7 +243,10 @@ void Renderer::InitSyncStructures() {
   }
 }
 
-void Renderer::InitPipelines() { InitTexturedMeshPipeline(); }
+void Renderer::InitPipelines() {
+  InitTexturedMeshPipeline();
+  InitMeshPipeline();
+}
 
 void Renderer::InitImmediateSubmit() {
   VkCommandPoolCreateInfo create_info{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
@@ -317,37 +328,49 @@ void Renderer::DrawGeometry(VkCommandBuffer cmd, AllocatedImage &render_target, 
   VkRect2D scissor{.extent = m_draw_extent};
   vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_textured_mesh_pipeline);
-  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_textured_mesh_pipeline_layout, 0, 1,
-                          &m_textured_mesh_descriptor_set, 0, nullptr);
+  // vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_textured_mesh_pipeline);
+  // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_textured_mesh_pipeline_layout, 0, 1,
+  //                         &m_textured_mesh_descriptor_set, 0, nullptr);
 
   glm::mat4 view_proj =
-      glm::perspective(m_camera.GetFov(),
-                       static_cast<float>(m_draw_extent.width) / static_cast<float>(m_draw_extent.height), 0.1f,
-                       m_camera.GetFarPlane()) *
+      glm::perspectiveRH(m_camera.GetFov(),
+                         static_cast<float>(m_draw_extent.width) / static_cast<float>(m_draw_extent.height), 0.1f,
+                         m_camera.GetFarPlane()) *
       glm::mat4(1.0f, 0.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f) *
       m_camera.ViewMatrix();
 
-  {
-    size_t index = 0;
-    for (auto &mesh : m_meshes) {
-      DrawPushConstants push_constants;
-      push_constants.vertex_buffer = mesh.vertex_addr;
-      // Position meshes in a grid with proper spacing (16 units between chunks)
-      push_constants.projection =
-          view_proj *
-          glm::translate(glm::mat4(1.0f), glm::vec3(mesh.chunk->x * kMaxChunkWidth, mesh.chunk->y * kMaxChunkHeight,
-                                                    mesh.chunk->z * kMaxChunkDepth));
+  MeshPushConstants constants;
+  constants.vertex_buffer = m_gpu_address;
+  constants.projection = view_proj;
+  constants.face_count = 1;
+  constants.data_offset = 0;
 
-      vkCmdPushConstants(cmd, m_textured_mesh_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(DrawPushConstants),
-                         &push_constants);
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_mesh_pipeline);
+  vkCmdPushConstants(cmd, m_mesh_pipeline_layout, VK_SHADER_STAGE_MESH_BIT_EXT, 0, sizeof(MeshPushConstants),
+                     &constants);
+  vkCmdDrawMeshTasksEXT(cmd, 1, 1, 1);
 
-      vkCmdBindIndexBuffer(cmd, mesh.vertex.buffer, mesh.vertex_size, VK_INDEX_TYPE_UINT32);
-      vkCmdDrawIndexed(cmd, mesh.index_size / 4, 1, 0, 0, 0);
+  // {
+  //   size_t index = 0;
+  //   for (auto &mesh : m_meshes) {
+  //     DrawPushConstants push_constants;
+  //     push_constants.vertex_buffer = mesh.vertex_addr;
+  //     // Position meshes in a grid with proper spacing (16 units between chunks)
+  //     push_constants.projection =
+  //         view_proj * glm::translate(glm::mat4(1.0f), glm::vec3(mesh.chunk->world_position.x * Chunk::kSize,
+  //                                                               mesh.chunk->world_position.y * Chunk::kSize,
+  //                                                               mesh.chunk->world_position.z * Chunk::kSize));
 
-      index += 1;
-    }
-  }
+  //     vkCmdPushConstants(cmd, m_textured_mesh_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
+  //     sizeof(DrawPushConstants),
+  //                        &push_constants);
+
+  //     vkCmdBindIndexBuffer(cmd, mesh.vertex.buffer, mesh.vertex_size * 4ULL, VK_INDEX_TYPE_UINT32);
+  //     vkCmdDrawIndexed(cmd, mesh.index_size, 1, 0, 0, 0);
+
+  //     index += 1;
+  //   }
+  // }
   // FIXME: This is a temporary hack to draw the crosshair
   // {
   //   DrawPushConstants push_constants;
@@ -413,18 +436,73 @@ void Renderer::InitTexturedMeshPipeline() {
 
 void Renderer::InitDefaultData() {
   m_device.WaitIdle();
-  for (auto &mesh : m_meshes) {
-    // DestroyBuffer(*m_allocator, std::move(mesh.index));
-    DestroyBuffer(*m_allocator, std::move(mesh.vertex));
-  }
-  m_meshes.clear();
 
-  for (auto &chunk : m_world->GetChunks()) {
-    ChunkMesh mesh = ChunkMesh::GenerateChunkMeshFromChunk(&chunk);
-    auto &mesh_ =
-        m_meshes.emplace_back(UploadMesh(this, m_device.GetDevice(), *m_allocator, mesh.indices, mesh.vertices));
-    mesh_.chunk = &chunk;
+  auto &chunks = m_world->GetChunks();
+  size_t chunks_per_thread = chunks.size() / ThreadPool::Concurrency();
+
+  CommandPool pool(m_device.GetDevice());
+  VkCommandBuffer cmd = pool.AllocateBuffer();
+
+  AllocatedBuffer staging = AllocateBuffer(
+      *m_allocator, 500 * 1024 * 1024, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+      VMA_MEMORY_USAGE_UNKNOWN, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+  void *map; // = staging.info.pMappedData;
+  vmaMapMemory(*m_allocator, staging.allocation, &map);
+
+  m_gpu_buffer = AllocateBuffer(*m_allocator, 1024 * 1024 * 1024,
+                                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                                    VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                                VMA_MEMORY_USAGE_UNKNOWN, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+  VkBufferDeviceAddressInfo addr{VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO};
+  addr.buffer = m_gpu_buffer.buffer;
+  m_gpu_address = vkGetBufferDeviceAddress(m_device.GetDevice(), &addr);
+
+  MeshChunk mchunk;
+  size_t off = 0;
+  size_t allocated = 500 * 1024 * 1024;
+
+  for (auto &chunk : chunks) {
+    if (chunk.empty) {
+      continue;
+    }
+
+    mchunk.faces.clear();
+    mchunk.GenerateChunkMesh(&chunk);
+
+    size_t to_write = mchunk.faces.size() * sizeof(mchunk.faces[0]);
+    printf("a chunk is using %zu of VRAM\n", to_write);
+
+    if ((to_write + off) > allocated) {
+      RuntimeError::Throw("not yet implemented, please make your render distance smaller!");
+    }
+
+    memcpy(static_cast<char *>(map) + off, mchunk.faces.data(), to_write);
+    off += to_write;
+    faces_to_render += mchunk.faces.size();
   }
+
+  vmaUnmapMemory(*m_allocator, staging.allocation);
+
+  VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+  VK_CHECK(vkBeginCommandBuffer(cmd, &begin));
+
+  VkBufferCopy region{};
+  region.size = off;
+
+  vkCmdCopyBuffer(cmd, staging.buffer, m_gpu_buffer.buffer, 1, &region);
+
+  VK_CHECK(vkEndCommandBuffer(cmd));
+
+  VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+  submit.commandBufferCount = 1;
+  submit.pCommandBuffers = &cmd;
+
+  VK_CHECK(vkQueueSubmit(m_device.GetGraphicsQueue(), 1, &submit, nullptr));
+  VK_CHECK(vkQueueWaitIdle(m_device.GetGraphicsQueue()));
+
+  DestroyBuffer(*m_allocator, std::move(staging));
 }
 
 void Renderer::UpdateTexturedMeshDescriptors(std::shared_ptr<Texture> texture) {
@@ -449,20 +527,6 @@ void Renderer::ResizeSwapchain() {
 
   m_draw_extent = {width, height};
 
-  // FIXME: temporary
-  // FIXME: last update broke this entirely, since crosshair isn't part of a chunk, and it is absolutely necessary now
-  // to render with the same pipeline. std::array<Vertex, 4> vertices = {
-  //     Vtx{.pos = {m_draw_extent.width / 2 - 10, m_draw_extent.height / 2 - 10, 1}, .uv = {0, 0}},
-  //     Vtx{.pos = {m_draw_extent.width / 2 - 10, m_draw_extent.height / 2 + 10, 1}, .uv = {0, 16.0f / 512.0f}},
-  //     Vtx{.pos = {m_draw_extent.width / 2 + 10, m_draw_extent.height / 2 + 10, 1},
-  //         .uv = {16.0f / 512.0f, 16.0f / 512.0f}},
-  //     Vtx{.pos = {m_draw_extent.width / 2 + 10, m_draw_extent.height / 2 - 10, 1}, .uv = {16.0f / 512.0f, 0}},
-  // };
-  // std::array<uint32_t, 6> indices = {0, 1, 3, 1, 2, 3};
-
-  // m_crosshair_mesh = UploadMesh(this, m_device.GetDevice(), *m_allocator, indices, vertices);
-  // END OF FIXME
-
   for (auto &frame : m_frames) {
     frame.render_target = AllocatedImage{m_device.GetDevice(), *m_allocator, m_draw_extent,
                                          VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
@@ -471,6 +535,38 @@ void Renderer::ResizeSwapchain() {
     frame.depth_buffer = AllocatedImage{m_device.GetDevice(), *m_allocator, m_draw_extent,
                                         VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_FORMAT_D32_SFLOAT};
   }
+}
+
+void Renderer::InitMeshPipeline() {
+  auto mesh = LoadShaderModule("./shaders/terrain.mesh.spv", m_device.GetDevice());
+  auto frag = LoadShaderModule("./shaders/terrain.frag.spv", m_device.GetDevice());
+
+  if (!mesh || !frag) {
+    RuntimeError::Throw("Couldn't load mesh shaders!");
+  }
+
+  VkPushConstantRange buffer_range{.stageFlags = VK_SHADER_STAGE_MESH_BIT_EXT, .size = sizeof(MeshPushConstants)};
+
+  VkPipelineLayoutCreateInfo layout_info{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+  layout_info.pushConstantRangeCount = 1;
+  layout_info.pPushConstantRanges = &buffer_range;
+
+  VK_CHECK(vkCreatePipelineLayout(m_device.GetDevice(), &layout_info, nullptr, &m_mesh_pipeline_layout));
+
+  GraphicsPipelineBuilder builder;
+
+  builder.pipeline_layout = m_mesh_pipeline_layout;
+  builder.SetMeshShader(*mesh, *frag);
+  builder.SetPolygonMode(VK_POLYGON_MODE_FILL);
+  // VK_FRONT_FACE_COUNTER_CLOCKWISE);
+  builder.DisableMSAA();
+  builder.EnableAlphaBlending();
+  builder.EnableDepthTest();
+  builder.SetColorAttachmentFormat(m_frames[0].render_target.format);
+
+  m_mesh_pipeline = builder.Build(m_device.GetDevice());
+
+  vkDestroyShaderModule(m_device.GetDevice(), *mesh, nullptr);
 }
 
 RAIIDestructorForObjects::~RAIIDestructorForObjects() {

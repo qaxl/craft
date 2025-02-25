@@ -21,7 +21,7 @@
 add_custom_target(glsl_shaders ALL)
 
 file(MAKE_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders)
-file(GLOB_RECURSE GLSL_SHADER_FILES ${CMAKE_CURRENT_SOURCE_DIR}/*.frag ${CMAKE_CURRENT_SOURCE_DIR}/*.vert)
+file(GLOB_RECURSE GLSL_SHADER_FILES ${CMAKE_CURRENT_SOURCE_DIR}/*.frag ${CMAKE_CURRENT_SOURCE_DIR}/*.vert ${CMAKE_CURRENT_SOURCE_DIR}/*.mesh)
 
 foreach(FILE ${GLSL_SHADER_FILES})
   get_filename_component(FILE_WE ${FILE} NAME)
@@ -29,7 +29,7 @@ foreach(FILE ${GLSL_SHADER_FILES})
 
   add_custom_command(
     OUTPUT ${SPV_FILE}
-    COMMAND glslc -o ${SPV_FILE} ${FILE}
+    COMMAND glslc --target-spv=spv1.5 -o ${SPV_FILE} ${FILE}
     COMMENT "Compiling into SPV ${FILE} -> ${SPV_FILE}"
     VERBATIM
   )

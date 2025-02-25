@@ -64,6 +64,15 @@ struct GraphicsPipelineBuilder {
                                                                "main"});
   }
 
+  FORCE_INLINE void SetMeshShader(VkShaderModule mesh, VkShaderModule fragment) {
+    shader_stages.clear();
+    shader_stages.emplace_back(VkPipelineShaderStageCreateInfo{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                                                               nullptr, 0, VK_SHADER_STAGE_MESH_BIT_EXT, mesh, "main"});
+    shader_stages.emplace_back(VkPipelineShaderStageCreateInfo{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                                                               nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, fragment,
+                                                               "main"});
+  }
+
   FORCE_INLINE void SetInputTopology(VkPrimitiveTopology topology) {
     input_assembly_state.topology = topology;
     input_assembly_state.primitiveRestartEnable = false;

@@ -12,7 +12,7 @@
 namespace craft::vk {
 struct DeviceExtension {
   const char *name;
-  bool required = false;
+  bool required = true;
 };
 
 struct DeviceFeatures {

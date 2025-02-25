@@ -8,9 +8,9 @@
 #include <memory>
 #include <vector>
 
+#include "command.hpp"
 #include "descriptor.hpp"
 #include "device.hpp"
-#include "graphics/camera.hpp"
 #include "image.hpp"
 #include "imgui.hpp"
 #include "instance.hpp"
@@ -18,6 +18,7 @@
 #include "platform/window.hpp"
 #include "swapchain.hpp"
 #include "util/raii.hpp"
+#include "world/player/camera.hpp"
 #include "world/world.hpp"
 
 namespace craft::vk {
@@ -66,7 +67,9 @@ public:
   FrameData &GetCurrentFrame() { return m_frames[m_frame_number++ % m_swapchain.GetImageCount()]; }
 
   void Draw();
-  void SubmitNow(std::function<void(VkCommandBuffer)> f);
+
+  [[deprecated("SubmitNow is unoptimal. Replacement coming soon.")]] void
+  SubmitNow(std::function<void(VkCommandBuffer)> f);
 
   void InitDefaultData();
 
@@ -78,6 +81,8 @@ private:
 
   void InitTexturedMeshPipeline();
   void UpdateTexturedMeshDescriptors(std::shared_ptr<Texture> texture);
+
+  void InitMeshPipeline();
 
   void DrawBackground(VkCommandBuffer cmd);
   void DrawGeometry(VkCommandBuffer cmd, AllocatedImage &render_target, AllocatedImage &depth_buffer);
@@ -119,11 +124,21 @@ private:
   VkPipelineLayout m_textured_mesh_pipeline_layout;
   VkPipeline m_textured_mesh_pipeline;
 
+  VkPipelineLayout m_mesh_pipeline_layout;
+  VkPipeline m_mesh_pipeline;
+
   std::vector<MeshBuffers> m_meshes{};
   MeshBuffers m_crosshair_mesh{};
 
   ImmediateSubmit m_imm;
   DescriptorAllocator m_dallocator;
+
+  std::vector<CommandPool> m_upload_pools;
+  std::vector<VkCommandBuffer> m_upload_cmds;
+
+  AllocatedBuffer m_gpu_buffer;
+  VkDeviceAddress m_gpu_address;
+  size_t faces_to_render = 0;
 
   friend struct RAIIDestructorForObjects;
 };

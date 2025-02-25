@@ -12,20 +12,20 @@ layout (push_constant) uniform constants {
     Buffer vertex_buffer;
 } push_constants;
 
- const vec3 face_corner_offsets[6][4] = {
-     // Front (+Z)
-     { vec3(1, 0, 1), vec3(0, 0, 1), vec3(0, 1, 1), vec3(1, 1, 1) },
-     // Back (-Z)
-     { vec3(0, 0, 0), vec3(1, 0, 0), vec3(1, 1, 0), vec3(0, 1, 0) },
-     // Left (-X)
-     { vec3(0, 0, 1), vec3(0, 0, 0), vec3(0, 1, 0), vec3(0, 1, 1) },
-     // Right (+X)
-     { vec3(1, 0, 0), vec3(1, 0, 1), vec3(1, 1, 1), vec3(1, 1, 0) },
-     // Top (+Y)
-     { vec3(0, 1, 0), vec3(1, 1, 0), vec3(1, 1, 1), vec3(0, 1, 1) },
-     // Bottom (-Y)
-     { vec3(0, 0, 1), vec3(1, 0, 1), vec3(1, 0, 0), vec3(0, 0, 0) }
- };
+const vec3 face_corner_offsets[6][4] = {
+   // Front (+Z)
+   { vec3(1, 0, 1), vec3(0, 0, 1), vec3(0, 1, 1), vec3(1, 1, 1) },
+   // Back (-Z)
+   { vec3(0, 0, 0), vec3(1, 0, 0), vec3(1, 1, 0), vec3(0, 1, 0) },
+   // Left (-X)
+   { vec3(0, 0, 1), vec3(0, 0, 0), vec3(0, 1, 0), vec3(0, 1, 1) },
+   // Right (+X)
+   { vec3(1, 0, 0), vec3(1, 0, 1), vec3(1, 1, 1), vec3(1, 1, 0) },
+   // Top (+Y)
+   { vec3(0, 1, 0), vec3(1, 1, 0), vec3(1, 1, 1), vec3(0, 1, 1) },
+   // Bottom (-Y)
+   { vec3(0, 0, 1), vec3(1, 0, 1), vec3(1, 0, 0), vec3(0, 0, 0) }
+};
 
 const vec3 normals[6] = {
     vec3( 0,  0,  1),  // Front (Red)
@@ -47,7 +47,7 @@ vec2 get_texture_coords(uint tex_index, vec2 corner_uv) {
     const ivec2 atlas_tiles = ivec2(16, 16);
     const vec2 tile_size = 1.0 / vec2(atlas_tiles);
     
-    ivec2 tile_pos = ivec2(
+    const ivec2 tile_pos = ivec2(
         int(tex_index) % atlas_tiles.x,
         int(tex_index) / atlas_tiles.x
     );
@@ -57,14 +57,15 @@ vec2 get_texture_coords(uint tex_index, vec2 corner_uv) {
 
 void main() {
     const uint v = push_constants.vertex_buffer.vertices[gl_VertexIndex];
+    const uint corner = gl_VertexIndex % 4;
 
     const uint x      = v         & 0x1F;  // 5 bits
-    const uint y      = (v >> 5)  & 0x3F;  // 6 bits
-    const uint z      = (v >> 11) & 0x1F;  // 5 bits
-    const uint face   = (v >> 16) & 0x07;  // 3 bits
-    const uint corner = (v >> 19) & 0x03;  // 2 bits
-    const uint tex_id = (v >> 21) & 0x1FF; // 9 bits
-    const uint ao     = (v >> 30) & 0x03;  // 2 bits
+    const uint y      = (v >> 5)  & 0x1F;  // 6 bits
+    const uint z      = (v >> 10) & 0x1F;  // 5 bits
+    const uint face   = (v >> 15) & 0x07;  // 3 bits
+    const uint _      = 0;                 // 2 bits unused
+    const uint tex_id = (v >> 18) & 0x1FF; // 9 bits
+    const uint ao     = (v >> 27) & 0x03;  // 2 bits
     
     out_uv = get_texture_coords(tex_id, corner_uvs[corner]);
 

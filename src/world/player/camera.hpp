@@ -1,15 +1,11 @@
 #pragma once
 
+#include "controls.hpp"
+#include "math/glm.hpp"
+
 #include <glm/ext/matrix_transform.hpp>
-#include <glm/glm.hpp>
 
 #include <algorithm>
-#include <iostream>
-
-inline std::ostream &operator<<(std::ostream &o, glm::vec3 &v) {
-  o << "vec3{" << v.x << ':' << v.y << ':' << v.z << '}';
-  return o;
-}
 
 namespace craft {
 enum class CameraMovement { Forward, Backward, Left, Right, Up, Down };
@@ -26,42 +22,44 @@ public:
          float pitch = kPitch)
       : m_front{glm::vec3(0.0f, 0.0f, -1.0f)}, m_position{position}, m_world_up{up}, m_yaw{yaw}, m_pitch{pitch} {}
 
-  glm::mat4 ViewMatrix() const { return glm::lookAtLH(m_position, m_position + m_front, m_up); }
-
+  // TODO: dynamic near/far plane
+  float GetFarPlane() const { return 1250.0f; }
   float GetFov() const { return glm::radians(m_fov); }
 
-  // TODO: dynamic near/far plane
-  float GetFarPlane() const { return 7600.0f; }
   glm::vec3 GetForward() const { return m_front; }
   glm::vec3 GetPosition() const { return m_position; }
+  glm::mat4 ViewMatrix() const { return glm::lookAtLH(m_position, m_position + m_front, m_up); }
 
-  void ProcessKeyboard(CameraMovement direction, float delta) {
+  void ProcessAction(Action action, float delta) {
     float velocity = m_movement_speed * delta;
     glm::vec3 front = glm::normalize(glm::vec3(m_front.x, 0.0f, m_front.z));
 
-    switch (direction) {
-    case CameraMovement::Forward:
+    switch (action) {
+    case Action::PlayerMoveForward:
       m_position -= front * velocity;
       break;
 
-    case CameraMovement::Backward:
+    case Action::PlayerMoveBackward:
       m_position += front * velocity;
       break;
 
-    case CameraMovement::Left:
+    case Action::PlayerMoveLeft:
       m_position += m_right * velocity;
       break;
 
-    case CameraMovement::Right:
+    case Action::PlayerMoveRight:
       m_position -= m_right * velocity;
       break;
 
-    case CameraMovement::Up:
+    case Action::PlayerMoveUp:
       m_position.y += velocity;
       break;
 
-    case CameraMovement::Down:
+    case Action::PlayerMoveDown:
       m_position.y -= velocity;
+      break;
+
+    default:
       break;
     }
   }
@@ -109,5 +107,7 @@ private:
   float m_movement_speed = kSpeed;
   float m_mouse_sensitivity = kSensitivity;
   float m_fov = kFov;
+
+  friend class Player;
 };
 } // namespace craft

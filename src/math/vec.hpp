@@ -1,30 +1,197 @@
 #pragma once
 
-#include "mat.hpp"
+#include <cmath>
+#include <type_traits>
 
-#include <glm/ext/vector_float3.hpp>
-#include <glm/glm.hpp>
+#include "glm.hpp"
 
 namespace craft {
-template <typename T, size_t N> using Vec = Mat<T, 1, N>;
+template <typename T, size_t N> struct Vec {
+  union {
+    T v[N];
+
+    // TODO: a better way to do this?
+    struct {
+      T x, y, z, w;
+    };
+  };
+
+  template <typename... Args> constexpr Vec(Args &&...args) : v{static_cast<T>(args)...} {}
+
+  constexpr T &operator[](size_t index) { return v[index]; }
+  constexpr const T &operator[](size_t index) const { return v[index]; }
+
+  constexpr glm::vec<N, T> IntoGLMVector() const {
+    glm::vec<N, T> val;
+    for (size_t i = 0; i < N; ++i) {
+      val[i] = v[i];
+    }
+    return val;
+  }
+
+  constexpr static Vec<T, N> FromGLMVector(const glm::vec<N, T> &vec) {
+    Vec<T, N> converted;
+    for (size_t i = 0; i < N; ++i) {
+      converted.v[i] = vec[i];
+    }
+    return converted;
+  }
+
+  constexpr Vec &operator+=(const Vec &other) {
+    for (size_t i = 0; i < N; ++i) {
+      v[i] += other.v[i];
+    }
+    return *this;
+  }
+
+  constexpr Vec &operator-=(const Vec &other) {
+    for (size_t i = 0; i < N; ++i) {
+      v[i] -= other.v[i];
+    }
+    return *this;
+  }
+
+  constexpr Vec &operator*=(const Vec &other) {
+    for (size_t i = 0; i < N; ++i) {
+      v[i] *= other.v[i];
+    }
+    return *this;
+  }
+
+  constexpr Vec &operator/=(const Vec &other) {
+    for (size_t i = 0; i < N; ++i) {
+      v[i] /= other.v[i];
+    }
+    return *this;
+  }
+
+  constexpr Vec &operator+=(T scalar) {
+    for (size_t i = 0; i < N; ++i) {
+      v[i] += scalar;
+    }
+    return *this;
+  }
+
+  constexpr Vec &operator-=(T scalar) {
+    for (size_t i = 0; i < N; ++i) {
+      v[i] -= scalar;
+    }
+    return *this;
+  }
+
+  constexpr Vec &operator*=(T scalar) {
+    for (size_t i = 0; i < N; ++i) {
+      v[i] *= scalar;
+    }
+    return *this;
+  }
+
+  constexpr Vec &operator/=(T scalar) {
+    for (size_t i = 0; i < N; ++i) {
+      v[i] /= scalar;
+    }
+    return *this;
+  }
+
+  constexpr bool operator==(const Vec &other) const {
+    for (size_t i = 0; i < N; ++i) {
+      if (v[i] != other.v[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  constexpr bool operator!=(const Vec &other) const { return !(*this == other); }
+
+  constexpr Vec operator+(const Vec &other) const {
+    Vec result = *this;
+    result += other;
+    return result;
+  }
+
+  constexpr Vec operator-(const Vec &other) const {
+    Vec result = *this;
+    result -= other;
+    return result;
+  }
+
+  constexpr Vec operator*(const Vec &other) const {
+    Vec result = *this;
+    result *= other;
+    return result;
+  }
+
+  constexpr Vec operator/(const Vec &other) const {
+    Vec result = *this;
+    result /= other;
+    return result;
+  }
+
+  constexpr Vec operator+(T scalar) const {
+    Vec result = *this;
+    result += scalar;
+    return result;
+  }
+
+  constexpr Vec operator-(T scalar) const {
+    Vec result = *this;
+    result -= scalar;
+    return result;
+  }
+
+  constexpr Vec operator*(T scalar) const {
+    Vec result = *this;
+    result *= scalar;
+    return result;
+  }
+
+  constexpr Vec operator/(T scalar) const {
+    Vec result = *this;
+    result /= scalar;
+    return result;
+  }
+
+  constexpr Vec operator-() const {
+    Vec result = *this;
+    for (size_t i = 0; i < N; ++i) {
+      result[i] = -result[i];
+    }
+    return result;
+  }
+
+  constexpr Vec Normalize() const {
+    T magnitude = 0;
+    for (size_t i = 0; i < N; ++i) {
+      magnitude += v[i] * v[i];
+    }
+
+    if (magnitude == 0) {
+      return Vec{};
+    }
+
+    magnitude = std::sqrt(magnitude);
+
+    Vec normalized;
+    for (size_t i = 0; i < N; ++i) {
+      normalized.v[i] = v[i] / magnitude;
+    }
+
+    return normalized;
+  }
+};
 
 // Common specializations of Vec
+template <typename T> using Vec2 = Vec<T, 2>;
+template <typename T> using Vec3 = Vec<T, 3>;
+template <typename T> using Vec4 = Vec<T, 4>;
 
-using Vec3f = Vec<float, 3>;
-using Vec4f = Vec<float, 4>;
-
-inline glm::vec3 &operator+(const Vec3f &v, glm::vec3 &o) {
-  o += glm::vec3(v.v[0][0], v.v[0][1], v.v[0][2]);
-  return o;
-}
-
-inline glm::vec3 IntoGLM(Vec4f vec) { return glm::vec3(vec.v[0][0], vec.v[0][1], vec.v[0][2]); }
+using Vec2i = Vec2<int64_t>;
+using Vec3f = Vec3<float>;
+using Vec3i = Vec3<int64_t>;
 
 struct Rect {
   float x, y, w, h;
 };
 
-// TODO: specializations of Rgba8, if needed
-using Rgba8 = Vec<int, 4>;
-using Rgba8f = Vec4f;
 } // namespace craft
